@@ -127,9 +127,15 @@ class AnswerResponse(BaseModel):
     feedback: str
     next_question: Optional[str]
 
+class SkillReport(BaseModel):
+    skill: str
+    average_score: float
+    status: str
+    feedback_summary: str
+
 class ReportResponse(BaseModel):
     overall_score: float
-    skills_summary: List[dict]
+    skills_report: List[SkillReport]
     roadmap: List[str]
 
 # --- In-memory storage ---
@@ -241,20 +247,53 @@ async def submit_answer(request: AnswerRequest):
         "next_question": next_question
     }
 
-@app.get("/report/{session_id}")
+@app.get("/report/{session_id}", response_model=ReportResponse)
 async def get_report(session_id: str):
     """
-    Returns the final evaluation report.
+    Generates a performance report and roadmap based on the session scores.
     """
     session = sessions.get(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    
-    return {
-        "overall_score": 0.0,
-        "skills_summary": [],
-        "roadmap": ["Complete the interview to see your roadmap"]
-    }
+
+    scores = session["scores"]
+    if not scores:
+        raise HTTPException(status_code=400, detail="No evaluation data available")
+
+    # Aggregate scores by skill
+    skill_stats = {}
+    for entry in scores:
+        skill = entry["skill"]
+        if skill not in skill_stats:
+            skill_stats[skill] = {"total": 0, "count": 0, "feedbacks": []}
+        skill_stats[skill]["total"] += entry["score"]
+        skill_stats[skill]["count"] += 1
+        skill_stats[skill]["feedbacks"].append(entry["feedback"])
+
+    skills_report = []
+    overall_total = 0
+    roadmap = []
+
+    for skill, stats in skill_stats.items():
+        avg = stats["total"] / stats["count"]
+        status = "Mastered" if avg >= 4 else "Developing" if avg >= 2.5 else "Needs Focus"
+        
+        skills_report.append(SkillReport(
+            skill=skill,
+            average_score=round(avg, 1),
+            status=status,
+            feedback_summary="; ".join(set(stats["feedbacks"]))
+        ))
+        overall_total += avg
+        
+        if status != "Mastered":
+            roadmap.append(f"Enhance your {skill} skills through focused practice.")
+
+    return ReportResponse(
+        overall_score=round(overall_total / len(skills_report), 1),
+        skills_report=skills_report,
+        roadmap=roadmap or ["Excellent work! Keep it up."]
+    )
 
 if __name__ == "__main__":
     import uvicorn

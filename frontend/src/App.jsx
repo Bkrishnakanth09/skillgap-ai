@@ -34,7 +34,7 @@ function LandingPage({ onStart }) {
   )
 }
 
-function InterviewPage({ session_id, first_question }) {
+function InterviewPage({ session_id, first_question, onComplete }) {
   const [messages, setMessages] = useState([{ role: 'bot', text: first_question }])
   const [input, setInput] = useState('')
 
@@ -45,8 +45,14 @@ function InterviewPage({ session_id, first_question }) {
       body: JSON.stringify({ session_id, answer: input })
     })
     const data = await res.json()
-    setMessages([...messages, { role: 'user', text: input }, { role: 'bot', text: data.next_question || 'Interview done!' }])
+    const userMsg = { role: 'user', text: input }
+    const botMsg = { role: 'bot', text: data.next_question || 'Interview complete!' }
+    setMessages([...messages, userMsg, botMsg])
     setInput('')
+    
+    if (!data.next_question) {
+      setTimeout(() => onComplete(), 2000)
+    }
   }
 
   return (
@@ -60,6 +66,34 @@ function InterviewPage({ session_id, first_question }) {
   )
 }
 
+function ReportPage({ session_id }) {
+  const [report, setReport] = useState(null)
+
+  useState(() => {
+    fetch(`/api/report/${session_id}`)
+      .then(res => res.json())
+      .then(setReport)
+  }, [])
+
+  if (!report) return <div>Generating report...</div>
+
+  return (
+    <div className="report-container">
+      <h1>Your Skill Report</h1>
+      <p>Overall Score: {report.overall_score}</p>
+      <ul>
+        {report.skills_report.map((s, i) => (
+          <li key={i}>
+            <strong>{s.skill}</strong>: {s.average_score} ({s.status})
+          </li>
+        ))}
+      </ul>
+      <h2>Roadmap</h2>
+      <ul>{report.roadmap.map((step, i) => <li key={i}>{step}</li>)}</ul>
+    </div>
+  )
+}
+
 function App() {
   const [view, setView] = useState('LANDING')
   const [session, setSession] = useState(null)
@@ -68,8 +102,10 @@ function App() {
     <main>
       {view === 'LANDING' ? (
         <LandingPage onStart={(data) => { setSession(data); setView('INTERVIEW'); }} />
+      ) : view === 'INTERVIEW' ? (
+        <InterviewPage session_id={session.session_id} first_question={session.first_question} onComplete={() => setView('REPORT')} />
       ) : (
-        <InterviewPage session_id={session.session_id} first_question={session.first_question} />
+        <ReportPage session_id={session.session_id} />
       )}
     </main>
   )
