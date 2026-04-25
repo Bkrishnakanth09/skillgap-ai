@@ -40,6 +40,16 @@ def evaluate_answer_ai(question: str, answer: str) -> dict:
     except:
         return {"score": 2, "feedback": "AI evaluation failed."}
 
+def generate_refined_question(base_question: str, last_score: int) -> str:
+    """
+    Refines the base question from Qdrant based on previous performance.
+    """
+    if last_score >= 4:
+        return f"Going deeper: {base_question} Specifically, how would you handle it in a high-scale environment?"
+    if last_score <= 2:
+        return f"Let's simplify: {base_question} Can you start with the basic concept?"
+    return base_question
+
 # Initialize Qdrant in-memory
 qdrant = QdrantClient(":memory:")
 COLLECTION_NAME = "questions"
@@ -173,11 +183,11 @@ async def start_session(request: StartRequest):
     
     # Use Qdrant to retrieve first question
     first_skill = extracted[0].skill
-    search_result = qdrant.search(
+    search_result = qdrant.query_points(
         collection_name=COLLECTION_NAME,
-        query_vector=get_mock_embedding(first_skill),
+        query=get_mock_embedding(first_skill),
         limit=1
-    )
+    ).points
     first_question = search_result[0].payload["question"] if search_result else "What is your experience with " + first_skill + "?"
 
     sessions[session_id] = {
@@ -233,12 +243,20 @@ async def submit_answer(request: AnswerRequest):
         }
 
     # Search Qdrant for next question
-    search_result = qdrant.search(
+    next_index = session["current_index"]
+    next_skill = session["skills"][next_index]
+    
+    search_result = qdrant.query_points(
         collection_name=COLLECTION_NAME,
-        query_vector=get_mock_embedding(next_skill),
+        query=get_mock_embedding(next_skill),
         limit=1
-    )
-    next_question = search_result[0].payload["question"] if search_result else "Tell me more about your work with " + next_skill
+    ).points
+    
+    base_question = search_result[0].payload["question"] if search_result else f"Tell me more about your work with {next_skill}"
+    
+    # AI Refinement / Follow-up Logic
+    next_question = generate_refined_question(base_question, score)
+    
     session["current_question"] = next_question
 
     return {
