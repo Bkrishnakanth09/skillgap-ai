@@ -183,6 +183,7 @@ class AnswerRequest(BaseModel):
     answer: str
 
 class AnswerResponse(BaseModel):
+    skill: str
     score: int
     feedback: str
     next_question: Optional[str]
@@ -350,10 +351,12 @@ async def submit_answer(request: AnswerRequest):
     session["current_question"] = next_question
 
     return {
+        "skill": skill,
         "score": score,
         "feedback": feedback,
         "next_question": next_question
     }
+
 
 @app.get("/report/{session_id}", response_model=ReportResponse)
 async def get_report(session_id: str):

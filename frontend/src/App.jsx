@@ -189,7 +189,8 @@ function Dashboard({ userData, onStartInterview, onStartPractice }) {
   )
 }
 
-function InterviewInterface({ sessionData, onComplete, userData }) {
+function InterviewInterface({ sessionData, onComplete, userData, onUpdatePerformance }) {
+
   const [messages, setMessages] = useState([
     { 
       role: 'system', 
@@ -244,6 +245,7 @@ function InterviewInterface({ sessionData, onComplete, userData }) {
                 break
               }
             }
+            onUpdatePerformance(data.skill, data.score)
             newMessages.push({ 
               role: 'assistant', 
               content: data.next_question
@@ -487,6 +489,16 @@ export default function App() {
                 <InterviewInterface 
                   sessionData={session} 
                   userData={userData}
+                  onUpdatePerformance={(skill, score) => {
+                    setUserData(prev => ({
+                      ...prev,
+                      skills: prev.skills.map(s => 
+                        s.name === skill 
+                          ? { ...s, level: Math.min(100, Math.max(0, s.level + (score - 5) * 4)) }
+                          : s
+                      )
+                    }))
+                  }}
                   onComplete={() => setView('REPORT')} 
                 />
               )}
