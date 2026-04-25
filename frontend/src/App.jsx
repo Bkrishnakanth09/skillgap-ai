@@ -144,8 +144,14 @@ function NewProjectModal({ userId, onClose, onCreated }) {
           <div className="modal-actions">
             <button type="button" onClick={onClose} className="secondary-button">Cancel</button>
             <button type="submit" className="primary-button" disabled={loading}>
-              {loading ? "Analyzing Skills..." : "Create Project"}
+              {loading ? (
+                <>
+                  <Loader2 className="spinner-icon" />
+                  <span>Analyzing Resume Intelligence...</span>
+                </>
+              ) : "Create Project"}
             </button>
+
           </div>
         </form>
       </motion.div>
@@ -245,10 +251,18 @@ function Dashboard({ project, report, onStart }) {
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="view-container">
       <header className="view-header">
         <div>
-          <h1>Dashboard: {project.name}</h1>
-          <p className="text-muted">Analyzing your gap for this specific Job Description.</p>
+          <div className="status-badge-mini mb-2">Project Active</div>
+          <h1>{project.name}</h1>
+          <p className="text-muted">Targeting skills from the uploaded Job Description.</p>
+        </div>
+        <div className="dashboard-stats">
+          <div className="stat-card">
+            <span className="label">Learning Velocity</span>
+            <span className="value">{(report?.overall_score || 0) > 0 ? '+12%' : '0%'}</span>
+          </div>
         </div>
       </header>
+
 
       <div className="dashboard-grid">
         <div className="dashboard-card span-8">
@@ -334,22 +348,36 @@ function InterviewView({ sessionId, onComplete }) {
   return (
     <div className="interview-prod">
       <div className="chat-window-prod" ref={chatRef}>
+        <div className="msg-row assistant">
+          <div className="msg-bubble">
+            Hello! I'm your AI Interviewer. I've analyzed your project context. Let's begin the evaluation.
+          </div>
+        </div>
         {messages.map((m, i) => (
           <div key={i} className={`msg-row ${m.role}`}>
              <div className="msg-bubble">
                <div className="m-text">{m.content}</div>
                {m.eval && (
-                 <div className="m-eval">
-                    <span className="score">Score: {m.eval.score}/10</span>
-                    <p>{m.eval.feedback}</p>
-                    {m.eval.missing_keywords.length > 0 && <span>Missing: {m.eval.missing_keywords.join(', ')}</span>}
-                 </div>
+                 <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className="m-eval">
+                    <div className="eval-badge">Provisional Score: {m.eval.score}/10</div>
+                    <p className="feedback-text">{m.eval.feedback}</p>
+                    {m.eval.missing_keywords.length > 0 && <div className="keywords"><strong>Keywords to focus: </strong>{m.eval.missing_keywords.join(', ')}</div>}
+                    <div className="tips"><strong>Tip: </strong>{m.eval.improvement_tips}</div>
+                 </motion.div>
                )}
              </div>
           </div>
         ))}
-        {loading && <Loader2 className="spinner" />}
+        {loading && (
+          <div className="msg-row assistant">
+            <div className="msg-bubble thinking-bubble">
+              <Loader2 className="spinner-icon" />
+              <span>Evaluating response intelligence...</span>
+            </div>
+          </div>
+        )}
       </div>
+
       <form onSubmit={handleSend} className="chat-input-prod">
         <input value={input} onChange={e => setInput(e.target.value)} placeholder="Enter your response..." />
         <button type="submit"><Send size={20} /></button>

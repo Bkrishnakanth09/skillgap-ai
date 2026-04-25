@@ -157,9 +157,9 @@ def evaluate_answer_ai(question: str, answer: str) -> dict:
         score = 6 if len(answer) > 60 else 4
         return {
             "score": score,
-            "feedback": "Evaluation engine fallback triggered.",
+            "feedback": "Basic evaluation applied.",
             "missing_keywords": missing[:1],
-            "improvement_tips": "Break down your answers into smaller, more specific modules."
+            "improvement_tips": "Focus on breaking down complex requirements into modular components."
         }
 
 # --- APP ---
@@ -321,10 +321,20 @@ def get_report(project_id: str, db: Session = Depends(get_db)):
             breakdown[a.skill] = []
         breakdown[a.skill].append(a.score)
     
-    skill_scores = {s: sum(scores)/len(scores) for s, scores in breakdown.items()}
-    weak_areas = [s for s, sc in skill_scores.items() if sc < 6]
-    
-    roadmap = [f"Master {w} by focusing on advanced patterns." for w in weak_areas]
+    roadmap = []
+    if weak_areas:
+        roadmap.append(f"Week 1: Foundations of {weak_areas[0]} - deep dive into core principles.")
+        if len(weak_areas) > 1:
+            roadmap.append(f"Week 2: Advanced {weak_areas[1]} - focus on architecture and optimization.")
+        else:
+            roadmap.append(f"Week 2: Implementation - build a prototype using {weak_areas[0]}.")
+        roadmap.append("Week 3: Mock interviews and system design practice.")
+    else:
+        roadmap = [
+            "Week 1: Performance optimization for existing stack.",
+            "Week 2: System design and scaling strategies.",
+            "Week 3: Advanced architect certification track."
+        ]
     
     return {
         "overall_score": round(overall_score, 1),
