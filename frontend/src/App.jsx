@@ -424,6 +424,14 @@ export default function App() {
   const handleStart = (data) => {
     localStorage.setItem("session_id", data.session_id)
     setSession(data)
+    setUserData(prev => ({
+      ...prev,
+      skills: data.extracted_skills.map(s => ({
+        name: s.skill,
+        level: 30, // Initial detected level
+        color: '#3b82f6'
+      }))
+    }))
     setView('DASHBOARD')
   }
 
