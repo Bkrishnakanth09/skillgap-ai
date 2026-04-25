@@ -145,6 +145,14 @@ QUESTION_BANK = {
     "Kubernetes": [
         "What is a Kubernetes Pod and how does it differ from a Docker container?",
         "Explain the role of a K8s Deployment vs a StatefulSet."
+    ],
+    "JavaScript": [
+        "Explain the concept of 'closures' in JavaScript.",
+        "What is the difference between '==' and '===' in JS?"
+    ],
+    "Java": [
+        "What is the difference between an Interface and an Abstract Class in Java?",
+        "Explain the memory management (Garbage Collection) in JVM."
     ]
 }
 
@@ -157,8 +165,12 @@ SKILL_MAPPING = {
     "react": "React",
     "docker": "Docker",
     "typescript": "TypeScript",
-    "ts": "TypeScript"
+    "ts": "TypeScript",
+    "js": "JavaScript",
+    "javascript": "JavaScript",
+    "java": "Java"
 }
+
 
 def normalize_skill(skill: str) -> str:
     return SKILL_MAPPING.get(skill.lower(), skill)
