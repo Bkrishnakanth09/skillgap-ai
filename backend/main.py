@@ -70,6 +70,11 @@ class AnswerResponse(BaseModel):
     feedback: str
     next_question: Optional[str]
 
+class ReportResponse(BaseModel):
+    overall_score: float
+    skills_summary: List[dict]
+    roadmap: List[str]
+
 # --- In-memory storage ---
 sessions = {}
 
@@ -163,6 +168,21 @@ async def submit_answer(request: AnswerRequest):
         "score": score,
         "feedback": feedback,
         "next_question": next_question
+    }
+
+@app.get("/report/{session_id}")
+async def get_report(session_id: str):
+    """
+    Returns the final evaluation report.
+    """
+    session = sessions.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    return {
+        "overall_score": 0.0,
+        "skills_summary": [],
+        "roadmap": ["Complete the interview to see your roadmap"]
     }
 
 if __name__ == "__main__":
