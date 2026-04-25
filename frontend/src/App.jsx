@@ -480,15 +480,52 @@ function ReportView({ sessionData, onBack }) {
       </header>
 
       {report && (
-        <div className="report-grid">
-           <div className="dashboard-card span-12">
+        <div className="dashboard-grid">
+           <div className="dashboard-card span-4 flex-center">
               <div className="overall-score-hero">
-                  <span className="score-val">{report.overall_score}</span>
+                  <div className="score-ring">
+                    <span className="score-val">{report.overall_score}</span>
+                    <span className="score-max">/10</span>
+                  </div>
                   <span className="score-label">Overall Proficiency</span>
               </div>
            </div>
+
+           <div className="dashboard-card span-8">
+            <h3>Domain Performance</h3>
+            <div className="report-skills-list mt-8">
+               {report.skills_report.map((s, i) => (
+                 <div key={i} className="report-skill-item">
+                    <div className="report-skill-info">
+                       <span className="skill-name-large">{s.skill}</span>
+                       <span className={`status-badge ${s.status.toLowerCase().replace(' ', '-')}`}>{s.status}</span>
+                    </div>
+                    <div className="skill-score-bar">
+                        <div className="skill-score-fill" style={{ width: `${s.average_score * 10}%` }}></div>
+                    </div>
+                    <p className="skill-summary-text">{s.feedback_summary}</p>
+                 </div>
+               ))}
+            </div>
+          </div>
+
+          <div className="dashboard-card span-12 glow-purple mt-8">
+            <div className="card-header">
+              <BookOpen className="text-purple" />
+              <h3>Personalized Learning Roadmap</h3>
+            </div>
+            <div className="roadmap-grid">
+               {report.roadmap.map((item, i) => (
+                 <div key={i} className="roadmap-item">
+                    <ChevronRight className="roadmap-icon" />
+                    <span>{item}</span>
+                 </div>
+               ))}
+            </div>
+          </div>
         </div>
       )}
+
     </motion.div>
   )
 }
