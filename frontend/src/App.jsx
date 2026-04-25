@@ -335,11 +335,19 @@ function InterviewInterface({ sessionData, onComplete, userData, onUpdatePerform
               ))}
               {isTyping && (
                 <div className="chat-bubble-wrapper assistant">
-                  <div className="chat-bubble assistant typing">
-                    <Loader2 className="spinner-icon" /> AI is evaluating...
-                  </div>
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="chat-bubble assistant thinking-glow"
+                  >
+                    <div className="thinking-dots">
+                      <span></span><span></span><span></span>
+                    </div>
+                    <span className="ml-2">Interviewer is analyzing...</span>
+                  </motion.div>
                 </div>
               )}
+
               <div ref={scrollRef} />
             </div>
 
