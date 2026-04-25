@@ -190,12 +190,18 @@ function Dashboard({ userData, onStartInterview, onStartPractice }) {
 }
 
 function InterviewInterface({ sessionData, onComplete, userData }) {
-  const [messages, setMessages] = useState([{ 
-    role: 'assistant', 
-    content: sessionData.first_question,
-    score: null,
-    feedback: null
-  }])
+  const [messages, setMessages] = useState([
+    { 
+      role: 'system', 
+      content: `Hello ${userData.name || 'Candidate'}! I am your AI Technical Interviewer. I've analyzed your resume and the job description. Let's begin the technical screening.` 
+    },
+    { 
+      role: 'assistant', 
+      content: sessionData.first_question,
+      score: null,
+      feedback: null
+    }
+  ])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [isTyping, setIsTyping] = useState(false)
@@ -303,11 +309,17 @@ function InterviewInterface({ sessionData, onComplete, userData }) {
               {messages.map((m, i) => (
                 <div key={i} className={`chat-bubble-wrapper ${m.role}`}>
                   <div className={`chat-bubble ${m.role}`}>
-                    {m.content}
+                    {m.role === 'assistant' && <div className="bubble-label">AI Interviewer</div>}
+                    {m.role === 'user' && <div className="bubble-label">You</div>}
+                    <div className="bubble-text">{m.content}</div>
                     {m.feedback && (
-                      <div className="answer-feedback">
-                        <CheckCircle2 size={12} /> {m.feedback} (Score: {m.score}/5)
-                      </div>
+                      <motion.div 
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        className="answer-feedback"
+                      >
+                        <CheckCircle2 size={12} /> {m.feedback} (Score: {m.score}/10)
+                      </motion.div>
                     )}
                   </div>
                 </div>
