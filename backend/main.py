@@ -3,12 +3,41 @@ from pydantic import BaseModel
 from typing import List, Optional
 import uuid
 from fastapi.middleware.cors import CORSMiddleware
+from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, VectorParams, PointStruct
 
 app = FastAPI(
     title="skillgap-ai API",
-    description="Backend for AI-powered skill evaluation and roadmap generation",
-    version="0.2.0"
+    description="Backend with Qdrant vector retrieval",
+    version="0.3.0"
 )
+
+# Initialize Qdrant in-memory
+qdrant = QdrantClient(":memory:")
+COLLECTION_NAME = "questions"
+
+# Simple mock embedding
+def get_mock_embedding(text: str) -> List[float]:
+    vals = [ord(c) / 100 for c in text[:4].ljust(4, ' ')]
+    return vals
+
+@app.on_event("startup")
+async def seed_qdrant():
+    qdrant.recreate_collection(
+        collection_name=COLLECTION_NAME,
+        vectors_config=VectorParams(size=4, distance=Distance.COSINE),
+    )
+    points = []
+    idx = 1
+    for skill, questions in QUESTION_BANK.items():
+        for q in questions:
+            points.append(PointStruct(
+                id=idx,
+                vector=get_mock_embedding(skill),
+                payload={"skill": skill, "question": q}
+            ))
+            idx += 1
+    qdrant.upsert(collection_name=COLLECTION_NAME, points=points)
 
 # Enable CORS for frontend integration
 app.add_middleware(
@@ -108,9 +137,14 @@ async def start_session(request: StartRequest):
 
     session_id = str(uuid.uuid4())
     
-    # Get first question
+    # Use Qdrant to retrieve first question
     first_skill = extracted[0].skill
-    first_question = QUESTION_BANK.get(first_skill, QUESTION_BANK["Software Development"])[0]
+    search_result = qdrant.search(
+        collection_name=COLLECTION_NAME,
+        query_vector=get_mock_embedding(first_skill),
+        limit=1
+    )
+    first_question = search_result[0].payload["question"] if search_result else "What is your experience with " + first_skill + "?"
 
     sessions[session_id] = {
         "resume": request.resume_text,
@@ -161,8 +195,13 @@ async def submit_answer(request: AnswerRequest):
             "next_question": None
         }
 
-    next_skill = session["skills"][session["current_index"]]
-    next_question = QUESTION_BANK[next_skill][0]
+    # Search Qdrant for next question
+    search_result = qdrant.search(
+        collection_name=COLLECTION_NAME,
+        query_vector=get_mock_embedding(next_skill),
+        limit=1
+    )
+    next_question = search_result[0].payload["question"] if search_result else "Tell me more about your work with " + next_skill
 
     return {
         "score": score,
