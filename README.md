@@ -1,9 +1,17 @@
 # skillgap-ai
 
-AI-powered interviewer that evaluates skill depth and generates a personalized learning roadmap.
+AI-powered technical interview simulator and skill analysis platform.
 
-## Structure
+> “Our system dynamically extracts skills from the resume and job description, retrieves relevant questions using vector search, and evaluates responses using LLMs to generate a personalized learning roadmap.”
 
-- frontend/ - React application
-- backend/ - FastAPI backend
-- qdrant/ - vector database setup
+## Technologies
+- **Frontend**: React + Vite + Framer Motion + Lucide React
+- **Backend**: FastAPI + Qdrant (Vector DB) + HuggingFace Inference API
+- **Deployment**: Optimized for modern cloud environments
+
+## Features
+- Dynamic AI Skill Extraction
+- Vector-based Question Retrieval
+- Adaptive Difficulty Adjustment
+- Real-time Intelligent Evaluation
+- Comprehensive Performance Reporting
