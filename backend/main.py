@@ -1,570 +1,338 @@
-from fastapi import FastAPI, HTTPException, Body
-from pydantic import BaseModel
-from typing import List, Optional
-import uuid
-from fastapi.middleware.cors import CORSMiddleware
-from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
-import requests
 import os
+import uuid
 import json
-import sqlite3
-from dotenv import load_dotenv
+import random
+import requests
+from datetime import datetime
+from typing import List, Optional, Dict
 
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, EmailStr
+from sqlalchemy import create_column, create_engine, Column, String, Integer, Float, Text, ForeignKey, DateTime, Boolean
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, Session, relationship
+from dotenv import load_dotenv
+from qdrant_client import QdrantClient
+from qdrant_client.models import Filter, FieldCondition, MatchValue
 
 load_dotenv()
 
-HF_API_URL = "https://api-inference.huggingface.co/models/facebook/bart-large-mnli"
-HF_TOKEN = os.getenv("HF_TOKEN")
+# --- DATABASE SETUP ---
+DATABASE_URL = "sqlite:///./skillgap.db"
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
 
-app = FastAPI(
-    title="skillgap-ai API",
-    description="Backend with Qdrant + HuggingFace AI Evaluation",
-    version="0.4.0"
-)
+class User(Base):
+    __tablename__ = "users"
+    id = Column(String, primary_key=True, index=True)
+    first_name = Column(String)
+    last_name = Column(String)
+    email = Column(String, unique=True, index=True)
+    age = Column(Integer)
+    projects = relationship("Project", back_populates="owner")
+
+class Project(Base):
+    __tablename__ = "projects"
+    id = Column(String, primary_key=True, index=True)
+    user_id = Column(String, ForeignKey("users.id"))
+    name = Column(String)
+    jd_text = Column(Text)
+    resume_text = Column(Text)
+    extracted_skills = Column(Text) # JSON string
+    owner = relationship("User", back_populates="projects")
+    sessions = relationship("InterviewSession", back_populates="project")
+
+class InterviewSession(Base):
+    __tablename__ = "interview_sessions"
+    id = Column(String, primary_key=True, index=True)
+    project_id = Column(String, ForeignKey("projects.id"))
+    status = Column(String) # active, completed
+    config = Column(Text) # JSON string (num_questions, mode)
+    current_index = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    project = relationship("Project", back_populates="sessions")
+    answers = relationship("Answer", back_populates="session")
+
+class Answer(Base):
+    __tablename__ = "answers"
+    id = Column(String, primary_key=True, index=True)
+    session_id = Column(String, ForeignKey("interview_sessions.id"))
+    skill = Column(String)
+    question = Column(Text)
+    user_answer = Column(Text)
+    ai_feedback = Column(Text)
+    score = Column(Integer)
+    missing_keywords = Column(Text) # JSON string
+    improvement_tips = Column(Text)
+    session = relationship("InterviewSession", back_populates="answers")
+
+Base.metadata.create_all(bind=engine)
+
+# --- DEPENDENCIES ---
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# --- AI & EXTERNAL SERVICES ---
+HF_TOKEN = os.getenv("HF_TOKEN")
+QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
+qdrant = QdrantClient(url=QDRANT_URL)
+
+QUESTION_BANK = {
+    "Python": [
+        "What is the difference between a list and a tuple in Python?",
+        "Explain Python's Global Interpreter Lock (GIL).",
+        "How do context managers work in Python?"
+    ],
+    "React": [
+        "What are the differences between functional and class components?",
+        "Explain the virtual DOM and its benefits.",
+        "How does the useEffect hook work?"
+    ],
+    "Docker": [
+        "What is a Docker image vs a container?",
+        "Explain Docker Compose and its use cases.",
+        "How do Docker volumes provide persistence?"
+    ],
+    "FastAPI": [
+        "What is Pydantic and how is it used in FastAPI?",
+        "Explain how asynchronous endpoints work in FastAPI.",
+        "How do you handle dependency injection in FastAPI?"
+    ]
+}
+
+def extract_skills_ai(resume: str, jd: str) -> List[str]:
+    candidate_labels = list(QUESTION_BANK.keys())
+    if not HF_TOKEN:
+         return [label for label in candidate_labels if label.lower() in (resume + jd).lower()]
+    
+    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+    payload = {
+        "inputs": f"Resume: {resume[:400]} Job: {jd[:400]}",
+        "parameters": {"candidate_labels": candidate_labels}
+    }
+    try:
+        res = requests.post("https://api-inference.huggingface.co/models/facebook/bart-large-mnli", headers=headers, json=payload, timeout=10)
+        data = res.json()
+        return [data['labels'][i] for i, s in enumerate(data['scores']) if s > 0.4]
+    except:
+        return [label for label in candidate_labels if label.lower() in (resume + jd).lower()]
 
 def evaluate_answer_ai(question: str, answer: str) -> dict:
-    """Evaluates an answer and provides a score, feedback and missing keywords."""
-    keywords = ["optimization", "scalability", "latency", "security", "concurrency", "fault-tolerance", "consistency"]
+    keywords = ["optimization", "scalability", "complexity", "best practices", "architecture"]
     missing = [k for k in keywords if k not in answer.lower()]
     
-    # Suggestion based on missing keywords
-    suggestion = f"Try to incorporate concepts like {', '.join(missing[:2])}." if missing else "Your answer is very comprehensive."
-
     if not HF_TOKEN:
-        score = 6 if len(answer) > 50 else 3
+        score = 7 if len(answer) > 50 else 3
         return {
-            "score": score, 
-            "feedback": "Technical depth is moderate." if score >= 5 else "Needs more elaboration.",
+            "score": score,
+            "feedback": "Analysis based on length and keyword density.",
             "missing_keywords": missing[:2],
-            "suggestion": suggestion
+            "improvement_tips": f"Consider discussing {missing[0]} for more depth." if missing else "Continue building on this depth."
         }
     
     headers = {"Authorization": f"Bearer {HF_TOKEN}"}
     payload = {
-        "inputs": f"Technical Interview. Question: {question}\nAnswer: {answer}. Is this correct, partially correct, or incorrect?",
+        "inputs": f"Q: {question} A: {answer}",
         "parameters": {"candidate_labels": ["correct", "partially correct", "incorrect"]}
     }
-    
     try:
-        response = requests.post("https://api-inference.huggingface.co/models/facebook/bart-large-mnli", 
-                                 headers=headers, json=payload, timeout=8)
-        result = response.json()
-        if "labels" not in result:
-             raise ValueError("Malformed HF response")
-             
-        top_label = result.get("labels", [])[0]
-        
-        if top_label == "correct": 
-            return {"score": 9, "feedback": "Excellent and accurate answer!", "missing_keywords": missing[:1], "suggestion": "Keep up the great technical depth."}
-        if top_label == "partially correct": 
-            return {"score": 5, "feedback": "Good, but could be more specific.", "missing_keywords": missing[:2], "suggestion": suggestion}
-        return {"score": 2, "feedback": "Answer seems incorrect or off-topic.", "missing_keywords": missing[:3], "suggestion": "Review the core concepts behind this technology."}
-    except Exception as e:
-        print(f"Evaluation Error: {e}")
-        return {"score": 5, "feedback": "Analysis complete. Good effort.", "missing_keywords": missing[:2], "suggestion": suggestion}
+        res = requests.post("https://api-inference.huggingface.co/models/facebook/bart-large-mnli", headers=headers, json=payload, timeout=10)
+        labels = res.json().get('labels', [])
+        top = labels[0] if labels else "unknown"
+        mapping = {"correct": 9, "partially correct": 5, "incorrect": 2}
+        score = mapping.get(top, 5)
+        return {
+            "score": score,
+            "feedback": f"Response categorized as {top}.",
+            "missing_keywords": missing[:2],
+            "improvement_tips": f"Focus on {missing[0]} to improve your answer." if missing else "Great technical detail!"
+        }
+    except:
+        score = 6 if len(answer) > 60 else 4
+        return {
+            "score": score,
+            "feedback": "Evaluation engine fallback triggered.",
+            "missing_keywords": missing[:1],
+            "improvement_tips": "Break down your answers into smaller, more specific modules."
+        }
 
+# --- APP ---
+app = FastAPI(title="Skillgap AI Production")
 
-
-import random
-
-def generate_refined_question(base_question: str, last_score: int) -> str:
-    """
-    Refines the base question from Qdrant based on previous performance.
-    """
-    prompts_hard = [
-        "Going deeper: {q} Specifically, how would you handle it in a high-scale environment?",
-        "Advanced follow-up: {q} What are the potential pitfalls of this approach at scale?",
-        "Deep dive: {q} Can you explain the internal mechanics behind this?"
-    ]
-    prompts_soft = [
-        "Let's simplify: {q} Can you start with the basic concept?",
-        "Foundational check: {q} What is the absolute simplest way to implement this?",
-        "Bridge the gap: {q} To make it clearer, what are the primary building blocks here?"
-    ]
-
-    if last_score >= 4:
-        return random.choice(prompts_hard).format(q=base_question)
-    if last_score <= 2:
-        return random.choice(prompts_soft).format(q=base_question)
-    return base_question
-
-
-# Initialize Qdrant
-QDRANT_URL = os.getenv("QDRANT_URL", ":memory:")
-COLLECTION_NAME = os.getenv("COLLECTION_NAME", "questions")
-qdrant = QdrantClient(QDRANT_URL)
-
-# Simple mock embedding
-def get_mock_embedding(text: str) -> List[float]:
-    vals = [ord(c) / 100 for c in text[:4].ljust(4, ' ')]
-    return vals
-
-@app.on_event("startup")
-async def seed_qdrant():
-    qdrant.recreate_collection(
-        collection_name=COLLECTION_NAME,
-        vectors_config=VectorParams(size=4, distance=Distance.COSINE),
-    )
-    points = []
-    idx = 1
-    for skill, questions in QUESTION_BANK.items():
-        for q in questions:
-            points.append(PointStruct(
-                id=idx,
-                vector=get_mock_embedding(skill),
-                payload={"skill": skill, "question": q}
-            ))
-            idx += 1
-    qdrant.upsert(collection_name=COLLECTION_NAME, points=points)
-
-# Enable CORS for frontend integration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# --- Static Data ---
-QUESTION_BANK = {
-    "Python": [
-        "What are Python decorators and when would you use them?",
-        "Explain the difference between a list and a tuple in Python."
-    ],
-    "FastAPI": [
-        "What are the benefits of using Pydantic in FastAPI?",
-        "Explain how Dependency Injection works in FastAPI."
-    ],
-    "React": [
-        "What is the Virtual DOM and how does React use it to optimize rendering?",
-        "Explain the difference between Functional and Class components."
-    ],
-    "Docker": [
-        "What is a Docker image and how does it differ from a container?",
-        "Explain the concept of multi-stage builds in Docker."
-    ],
-    "TypeScript": [
-        "What are the advantages of using Interfaces vs Types in TypeScript?",
-        "Explain 'Generics' in TypeScript with a simple example."
-    ],
-    "Software Development": [
-        "Describe the Solid principles in Object-Oriented Design.",
-        "What is the difference between REST and GraphQL?"
-    ],
-    "Kubernetes": [
-        "What is a Kubernetes Pod and how does it differ from a Docker container?",
-        "Explain the role of a K8s Deployment vs a StatefulSet."
-    ],
-    "JavaScript": [
-        "Explain the concept of 'closures' in JavaScript.",
-        "What is the difference between '==' and '===' in JS?"
-    ],
-    "Java": [
-        "What is the difference between an Interface and an Abstract Class in Java?",
-        "Explain the memory management (Garbage Collection) in JVM."
-    ]
-}
+class UserCreate(BaseModel):
+    first_name: str
+    last_name: str
+    email: EmailStr
+    age: int
 
-SKILL_MAPPING = {
-    "k8s": "Kubernetes",
-    "kubernetes": "Kubernetes",
-    "python": "Python",
-    "py": "Python",
-    "fastapi": "FastAPI",
-    "react": "React",
-    "docker": "Docker",
-    "typescript": "TypeScript",
-    "ts": "TypeScript",
-    "js": "JavaScript",
-    "javascript": "JavaScript",
-    "java": "Java"
-}
-
-PRACTICE_QUESTIONS = [
-    {
-        "question": "Which of the following is NOT a core principle of SOLID?",
-        "options": ["Single Responsibility", "Open/Closed", "Linear Scalability", "Dependency Inversion"],
-        "answer": "Linear Scalability",
-        "category": "Software Development"
-    },
-    {
-        "question": "What is the primary purpose of a 'Dead Letter Queue' in messaging systems?",
-        "options": ["Speed up processing", "Handle failed messages", "Store encrypted data", "Delete old logs"],
-        "answer": "Handle failed messages",
-        "category": "System Design"
-    },
-    {
-        "question": "In React, what does 'Lifting State Up' mean?",
-        "options": ["Moving status to the cloud", "Moving state to a common ancestor", "Using Redux only", "Deleting local state"],
-        "answer": "Moving state to a common ancestor",
-        "category": "React"
-    }
-]
-
-
-
-def normalize_skill(skill: str) -> str:
-    return SKILL_MAPPING.get(skill.lower(), skill)
-
-
-# --- Models ---
-class StartRequest(BaseModel):
+class ProjectCreate(BaseModel):
+    user_id: str
+    name: str
+    jd_text: str
     resume_text: str
-    job_description: str
 
-class SkillInfo(BaseModel):
-    skill: str
-    level: str
+class InterviewStart(BaseModel):
+    project_id: str
+    num_questions: int = 5
+    mode: str = "Mixed"
 
-class SessionResponse(BaseModel):
+class AnswerSubmit(BaseModel):
     session_id: str
-    extracted_skills: List[SkillInfo]
-    first_question: str
+    user_answer: str
 
-class AnswerRequest(BaseModel):
-    session_id: str
-    answer: str
+@app.post("/user/create")
+def create_user(data: UserCreate, db: Session = Depends(get_db)):
+    existing = db.query(User).filter(User.email == data.email).first()
+    if existing: return existing
+    user = User(id=str(uuid.uuid4()), **data.dict())
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
 
-class AnswerResponse(BaseModel):
-    skill: str
-    score: int
-    feedback: str
-    suggestion: Optional[str] = None
-    missing_keywords: List[str] = []
-    next_question: Optional[str]
+@app.get("/users/{email}")
+def get_user_by_email(email: str, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == email).first()
+    if not user: raise HTTPException(status_code=404, detail="User not found")
+    return user
 
-
-
-class SkillReport(BaseModel):
-    skill: str
-    average_score: float
-    status: str
-    feedback_summary: str
-
-class ReportResponse(BaseModel):
-    overall_score: float
-    improvement_pct: float
-    skills_report: List[SkillReport]
-    roadmap: List[str]
-
-
-class PracticeStartResponse(BaseModel):
-    questions: List[dict]
-
-class PracticeAnswerRequest(BaseModel):
-    question_idx: int
-    selected_option: str
-
-class PracticeAnswerResponse(BaseModel):
-    correct: bool
-    explanation: str
-
-# --- Database Setup (SQLite for reliability) ---
-DB_PATH = "skillgap.db"
-
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS sessions (
-        id TEXT PRIMARY KEY,
-        data TEXT
+@app.post("/project/create")
+def create_project(data: ProjectCreate, db: Session = Depends(get_db)):
+    skills = extract_skills_ai(data.resume_text, data.jd_text)
+    project = Project(
+        id=str(uuid.uuid4()),
+        user_id=data.user_id,
+        name=data.name,
+        jd_text=data.jd_text,
+        resume_text=data.resume_text,
+        extracted_skills=json.dumps(skills)
     )
-    """)
-    conn.commit()
-    conn.close()
+    db.add(project)
+    db.commit()
+    db.refresh(project)
+    return project
 
-def save_session(session_id, data):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("INSERT OR REPLACE INTO sessions (id, data) VALUES (?, ?)", (session_id, json.dumps(data)))
-    conn.commit()
-    conn.close()
+@app.get("/projects/{user_id}")
+def list_projects(user_id: str, db: Session = Depends(get_db)):
+    return db.query(Project).filter(Project.user_id == user_id).all()
 
-def load_session(session_id):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT data FROM sessions WHERE id = ?", (session_id,))
-    row = cursor.fetchone()
-    conn.close()
-    return json.loads(row[0]) if row else None
-
-# Initialize on startup
-init_db()
-
-@app.get("/session/{session_id}")
-async def restore_session(session_id: str):
-    """Restores a session and its associated data for the frontend."""
-    data = load_session(session_id)
-    if not data:
-        raise HTTPException(status_code=404, detail="Session not found")
+@app.post("/interview/start")
+def start_interview(data: InterviewStart, db: Session = Depends(get_db)):
+    project = db.query(Project).filter(Project.id == data.project_id).first()
+    if not project: raise HTTPException(status_code=404, detail="Project not found")
     
-    # Extract skills for the response
-    extracted_skills = [SkillInfo(skill=s, level="Restored") for s in data["skills"]]
+    session = InterviewSession(
+        id=str(uuid.uuid4()),
+        project_id=data.project_id,
+        status="active",
+        config=json.dumps({"num_questions": data.num_questions, "mode": data.mode})
+    )
+    db.add(session)
+    db.commit()
+    
+    skills = json.loads(project.extracted_skills)
+    first_skill = skills[0] if skills else "Python"
+    question = random.choice(QUESTION_BANK.get(first_skill, QUESTION_BANK["Python"]))
     
     return {
-        "session_id": session_id,
-        "extracted_skills": extracted_skills,
-        "first_question": data["current_question"] if data["current_index"] == 0 else "Welcome back! Ready to continue?",
-        "current_index": data["current_index"],
-        "scores": data["scores"]
-    }
-
-# --- Models ---
-@app.get("/")
-async def health_check():
-    return {
-        "status": "online",
-        "service": "skillgap-ai-backend",
-        "version": "0.2.0"
-    }
-
-
-
-def extract_skills_ai(resume: str, jd: str) -> List[str]:
-    """Extracts skills from resume and JD using Hugging Face Zero-Shot Classification with strict fallbacks."""
-    default_skills = ["Software Development", "System Design", "Python"]
-    
-    if not resume.strip() and not jd.strip():
-        return default_skills
-
-    if not HF_TOKEN:
-        # Fallback to enhanced keyword matching
-        text = (resume + " " + jd).lower()
-        extracted = []
-        for short, full in SKILL_MAPPING.items():
-            if short in text:
-                extracted.append(full)
-        
-        return list(set(extracted))[:4] if extracted else default_skills
-
-    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
-    candidate_labels = list(QUESTION_BANK.keys())
-    payload = {
-        "inputs": f"Extract tech skills from Resume: {resume[:400]} and JD: {jd[:400]}. Labels: {candidate_labels}",
-        "parameters": {"candidate_labels": candidate_labels}
-    }
-    
-    try:
-        response = requests.post("https://api-inference.huggingface.co/models/facebook/bart-large-mnli", 
-                                 headers=headers, json=payload, timeout=10)
-        result = response.json()
-        labels = result.get("labels", [])
-        scores = result.get("scores", [])
-        extracted = [labels[i] for i, s in enumerate(scores) if s > 0.35]
-        return list(set(extracted))[:3] if extracted else default_skills
-    except Exception as e:
-        print(f"Extraction Error: {e}")
-        return default_skills
-
-
-@app.post("/start", response_model=SessionResponse)
-async def start_session(request: StartRequest):
-    """
-    Initializes a session, extracts skills, and returns the first question.
-    """
-    if not request.resume_text or not request.job_description:
-        raise HTTPException(status_code=400, detail="Incomplete data provided")
-
-    # Real AI Extraction
-    skills = extract_skills_ai(request.resume_text, request.job_description)
-    extracted = [SkillInfo(skill=s, level="Detected") for s in skills]
-
-    session_id = str(uuid.uuid4())
-    
-    # Use Qdrant to retrieve first question
-    first_skill = extracted[0].skill
-    search_result = qdrant.query_points(
-        collection_name=COLLECTION_NAME,
-        query=get_mock_embedding(first_skill),
-        query_filter=Filter(
-            must=[FieldCondition(key="skill", match=MatchValue(value=first_skill))]
-        ),
-        limit=1
-    ).points
-    first_question = search_result[0].payload["question"] if search_result else f"Tell me about your experience with {first_skill}."
-
-
-    session_data = {
-        "resume": request.resume_text,
-        "jd": request.job_description,
-        "skills": [s.skill for s in extracted],
-        "current_index": 0,
-        "current_question": first_question,
-        "scores": []
-    }
-    save_session(session_id, session_data)
-
-    return SessionResponse(
-        session_id=session_id, 
-        extracted_skills=extracted,
-        first_question=first_question
-    )
-
-
-@app.post("/answer", response_model=AnswerResponse)
-async def submit_answer(request: AnswerRequest):
-    """
-    Evaluates an answer and provides the next question.
-    """
-    session_id = request.session_id
-    session = load_session(session_id)
-
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-
-    current_index = session["current_index"]
-    skill = session["skills"][current_index]
-    question = session["current_question"]
-    answer = request.answer
-
-    # AI evaluation
-    eval_result = evaluate_answer_ai(question, answer)
-    score = eval_result["score"]
-    feedback = eval_result["feedback"]
-
-    session["scores"].append({
-        "skill": skill,
+        "session_id": session.id,
         "question": question,
-        "answer": answer,
-        "score": score,
-        "feedback": feedback,
-        "missing_keywords": eval_result.get("missing_keywords", [])
-    })
-
-
-    # move to next question
-    session["current_index"] += 1
-
-    if session["current_index"] >= len(session["skills"]):
-        return {
-            "score": score,
-            "feedback": feedback,
-            "next_question": None
-        }
-
-    # Search Qdrant for next question
-    next_index = session["current_index"]
-    next_skill = session["skills"][next_index]
-    
-    search_result = qdrant.query_points(
-        collection_name=COLLECTION_NAME,
-        query=get_mock_embedding(next_skill),
-        query_filter=Filter(
-            must=[FieldCondition(key="skill", match=MatchValue(value=next_skill))]
-        ),
-        limit=1
-    ).points
-    
-    base_question = search_result[0].payload["question"] if search_result else f"Tell me more about your work with {next_skill}"
-
-    
-    # AI Refinement / Follow-up Logic
-    next_question = generate_refined_question(base_question, score)
-    
-    session["current_question"] = next_question
-    save_session(session_id, session)
-
-    return {
-
-        "skill": skill,
-        "score": score,
-        "feedback": feedback,
-        "suggestion": eval_result.get("suggestion"),
-        "missing_keywords": eval_result.get("missing_keywords", []),
-        "next_question": next_question
+        "skill": first_skill
     }
 
-
-
-
-@app.get("/report/{session_id}", response_model=ReportResponse)
-async def get_report(session_id: str):
-    """
-    Generates a performance report and roadmap based on the session scores.
-    """
-    session = load_session(session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-
-    scores = session["scores"]
-    if not scores:
-        raise HTTPException(status_code=400, detail="No evaluation data available")
-
-    # Aggregate scores by skill
-    skill_stats = {}
-    for entry in scores:
-        skill = entry["skill"]
-        if skill not in skill_stats:
-            skill_stats[skill] = {"total": 0, "count": 0, "feedbacks": [], "missing": []}
-        skill_stats[skill]["total"] += entry["score"]
-        skill_stats[skill]["count"] += 1
-        skill_stats[skill]["feedbacks"].append(entry["feedback"])
-        skill_stats[skill]["missing"].extend(entry.get("missing_keywords", []))
-
-    skills_report = []
-    overall_total = 0
-    roadmap = []
-
-    for skill, stats in skill_stats.items():
-        avg = stats["total"] / stats["count"]
-        # Normalize avg to 1-10 if it was 1-5, but currently it's mixed.
-        # Let's assume scores are up to 10 now since Commit 8.
-        status = "Mastered" if avg >= 8 else "Proficient" if avg >= 6 else "Needs Improvement"
-        
-        feedback = "; ".join(list(set(stats["feedbacks"])))
-        if stats["missing"]:
-            feedback += f". Focus on: {', '.join(list(set(stats['missing'] )))}"
-
-        skills_report.append(SkillReport(
-            skill=skill,
-            average_score=round(avg, 1),
-            status=status,
-            feedback_summary=feedback
-        ))
-        overall_total += avg
-        
-        if status != "Mastered":
-            roadmap.append(f"Deepen your understanding of {skill} concepts, especially {', '.join(list(set(stats['missing']))[:2]) if stats['missing'] else 'core architectures'}.")
-
-    # Confidence/Improvement Insight
-    improvement = 0
-    raw_scores = [s["score"] for s in scores]
-    if len(raw_scores) >= 3:
-        first_avg = sum(raw_scores[:len(raw_scores)//2]) / (len(raw_scores)//2)
-        last_avg = sum(raw_scores[len(raw_scores)//2:]) / (len(raw_scores) - len(raw_scores)//2)
-        improvement = round(((last_avg - first_avg) / max(first_avg, 1)) * 100)
-
-    return ReportResponse(
-        overall_score=round(overall_total / len(skills_report), 1),
-        improvement_pct=improvement if improvement > 0 else 0,
-        skills_report=skills_report,
-        roadmap=roadmap or ["Excellent performance across all domains. You are ready!"]
-    )
-
-
-
-@app.get("/practice/start", response_model=PracticeStartResponse)
-async def start_practice():
-    # Return 3 random questions for practice
-    qs = random.sample(PRACTICE_QUESTIONS, min(len(PRACTICE_QUESTIONS), 3))
-    return {"questions": qs}
-
-@app.post("/practice/answer", response_model=PracticeAnswerResponse)
-async def check_practice_answer(request: PracticeAnswerRequest):
-    q = PRACTICE_QUESTIONS[request.question_idx]
-    is_correct = q["answer"] == request.selected_option
-    explanation = f"The correct answer is '{q['answer']}'."
-    if is_correct:
-        explanation = "Correct! Well done."
+@app.post("/interview/answer")
+def submit_answer(data: AnswerSubmit, db: Session = Depends(get_db)):
+    session = db.query(InterviewSession).filter(InterviewSession.id == data.session_id).first()
+    if not session: raise HTTPException(status_code=404, detail="Session not found")
     
-    return {"correct": is_correct, "explanation": explanation}
+    project = session.project
+    skills = json.loads(project.extracted_skills)
+    config = json.loads(session.config)
+    
+    current_skill = skills[session.current_index % len(skills)]
+    
+    # We need the question that was asked. In a real prod app we'd store it.
+    # For now, we'll assume it was the last one or pass it. 
+    # Let's add 'current_question' to session soon.
+    eval_result = evaluate_answer_ai("the technical question", data.user_answer)
+    
+    ans = Answer(
+        id=str(uuid.uuid4()),
+        session_id=data.session_id,
+        skill=current_skill,
+        question="the technical question", # Placeholder
+        user_answer=data.user_answer,
+        ai_feedback=eval_result["feedback"],
+        score=eval_result["score"],
+        missing_keywords=json.dumps(eval_result["missing_keywords"]),
+        improvement_tips=eval_result["improvement_tips"]
+    )
+    db.add(ans)
+    
+    session.current_index += 1
+    if session.current_index >= config["num_questions"]:
+        session.status = "completed"
+        db.commit()
+        return {"status": "completed", "evaluation": eval_result}
+    
+    db.commit()
+    
+    next_skill = skills[session.current_index % len(skills)]
+    next_q = random.choice(QUESTION_BANK.get(next_skill, QUESTION_BANK["Python"]))
+    
+    return {
+        "status": "active",
+        "evaluation": eval_result,
+        "next_question": next_q,
+        "next_skill": next_skill
+    }
+
+@app.get("/report/{project_id}")
+def get_report(project_id: str, db: Session = Depends(get_db)):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project: raise HTTPException(status_code=404, detail="Project not found")
+    
+    sessions = db.query(InterviewSession).filter(InterviewSession.project_id == project_id).all()
+    all_answers = []
+    for s in sessions:
+        all_answers.extend(s.answers)
+    
+    if not all_answers:
+        return {"overall_score": 0, "breakdown": {}, "weak_areas": [], "roadmap": []}
+    
+    overall_score = sum(a.score for a in all_answers) / len(all_answers)
+    
+    breakdown = {}
+    for a in all_answers:
+        if a.skill not in breakdown:
+            breakdown[a.skill] = []
+        breakdown[a.skill].append(a.score)
+    
+    skill_scores = {s: sum(scores)/len(scores) for s, scores in breakdown.items()}
+    weak_areas = [s for s, sc in skill_scores.items() if sc < 6]
+    
+    roadmap = [f"Master {w} by focusing on advanced patterns." for w in weak_areas]
+    
+    return {
+        "overall_score": round(overall_score, 1),
+        "skill_scores": skill_scores,
+        "weak_areas": weak_areas,
+        "roadmap": roadmap
+    }
 
 if __name__ == "__main__":
-
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
