@@ -69,10 +69,17 @@ function Sidebar({ activeTab, setActiveTab }) {
           <Settings className="nav-icon" />
           <span>Settings</span>
         </button>
-        <button className="nav-item text-red">
+        <button 
+          className="nav-item text-red"
+          onClick={() => {
+            localStorage.clear()
+            window.location.reload()
+          }}
+        >
           <LogOut className="nav-icon" />
-          <span>Logout</span>
+          <span>Reset Session</span>
         </button>
+
       </div>
     </div>
   )
