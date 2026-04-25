@@ -7,7 +7,10 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
 import requests
 import os
+import json
+import sqlite3
 from dotenv import load_dotenv
+
 
 load_dotenv()
 
@@ -258,10 +261,58 @@ class PracticeAnswerResponse(BaseModel):
     correct: bool
     explanation: str
 
-# --- In-memory storage ---
+# --- Database Setup (SQLite for reliability) ---
+DB_PATH = "skillgap.db"
 
-sessions = {}
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT PRIMARY KEY,
+        data TEXT
+    )
+    """)
+    conn.commit()
+    conn.close()
 
+def save_session(session_id, data):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("INSERT OR REPLACE INTO sessions (id, data) VALUES (?, ?)", (session_id, json.dumps(data)))
+    conn.commit()
+    conn.close()
+
+def load_session(session_id):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT data FROM sessions WHERE id = ?", (session_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return json.loads(row[0]) if row else None
+
+# Initialize on startup
+init_db()
+
+@app.get("/session/{session_id}")
+async def restore_session(session_id: str):
+    """Restores a session and its associated data for the frontend."""
+    data = load_session(session_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    # Extract skills for the response
+    extracted_skills = [SkillInfo(skill=s, level="Restored") for s in data["skills"]]
+    
+    return {
+        "session_id": session_id,
+        "extracted_skills": extracted_skills,
+        "first_question": data["current_question"] if data["current_index"] == 0 else "Welcome back! Ready to continue?",
+        "current_index": data["current_index"],
+        "scores": data["scores"]
+    }
+
+# --- Models ---
 @app.get("/")
 async def health_check():
     return {
@@ -336,7 +387,7 @@ async def start_session(request: StartRequest):
     first_question = search_result[0].payload["question"] if search_result else f"Tell me about your experience with {first_skill}."
 
 
-    sessions[session_id] = {
+    session_data = {
         "resume": request.resume_text,
         "jd": request.job_description,
         "skills": [s.skill for s in extracted],
@@ -344,6 +395,7 @@ async def start_session(request: StartRequest):
         "current_question": first_question,
         "scores": []
     }
+    save_session(session_id, session_data)
 
     return SessionResponse(
         session_id=session_id, 
@@ -351,16 +403,18 @@ async def start_session(request: StartRequest):
         first_question=first_question
     )
 
+
 @app.post("/answer", response_model=AnswerResponse)
 async def submit_answer(request: AnswerRequest):
     """
     Evaluates an answer and provides the next question.
     """
     session_id = request.session_id
-    session = sessions.get(session_id)
+    session = load_session(session_id)
 
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
+
 
     current_index = session["current_index"]
     skill = session["skills"][current_index]
@@ -412,8 +466,10 @@ async def submit_answer(request: AnswerRequest):
     next_question = generate_refined_question(base_question, score)
     
     session["current_question"] = next_question
+    save_session(session_id, session)
 
     return {
+
         "skill": skill,
         "score": score,
         "feedback": feedback,
@@ -430,9 +486,10 @@ async def get_report(session_id: str):
     """
     Generates a performance report and roadmap based on the session scores.
     """
-    session = sessions.get(session_id)
+    session = load_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
+
 
     scores = session["scores"]
     if not scores:

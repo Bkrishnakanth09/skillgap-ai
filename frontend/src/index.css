@@ -38,6 +38,10 @@ body {
   overflow: hidden;
 }
 
+.full-height { height: 100vh; }
+.bg-dark { background-color: var(--bg-dark); }
+
+
 .app-main {
   display: flex;
   width: 100%;

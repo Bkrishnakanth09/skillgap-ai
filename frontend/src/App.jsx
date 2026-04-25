@@ -639,13 +639,44 @@ export default function App() {
   const [view, setView] = useState('LANDING') // LANDING, DASHBOARD, INTERVIEW, PRACTICE, REPORT
   const [activeTab, setActiveTab] = useState('dashboard')
   const [session, setSession] = useState(null)
+  const [appReady, setAppReady] = useState(false)
   const [userData, setUserData] = useState({
     name: '',
-    title: '',
+    title: 'Technical Candidate',
     id: '',
-    skills: EMPTY_SKILLS,
-    history: EMPTY_HISTORY
+    skills: [],
+    history: []
   })
+
+  // Restore session on load
+  useEffect(() => {
+    const savedSessionId = localStorage.getItem("session_id")
+    if (savedSessionId) {
+      fetch(`/api/session/${savedSessionId}`)
+        .then(res => {
+          if (!res.ok) throw new Error("Session expired")
+          return res.json()
+        })
+        .then(data => {
+          setSession(data)
+          setUserData(prev => ({
+            ...prev,
+            skills: data.extracted_skills.map(s => ({
+              name: s.skill,
+              level: 40,
+              color: '#3b82f6'
+            }))
+          }))
+          setView('DASHBOARD')
+        })
+        .catch(() => {
+          localStorage.removeItem("session_id")
+        })
+        .finally(() => setAppReady(true))
+    } else {
+      setAppReady(true)
+    }
+  }, [])
 
   // Handle successful resume analysis
   const handleStart = (data) => {
@@ -661,6 +692,14 @@ export default function App() {
     }))
     setView('DASHBOARD')
   }
+
+  if (!appReady) return (
+    <div className="flex-center full-height bg-dark">
+      <Loader2 className="spinner-icon large" />
+      <p className="mt-4">Initializing Skillgap Engine...</p>
+    </div>
+  )
+
 
   return (
     <div className="app-shell">
