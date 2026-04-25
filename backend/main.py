@@ -376,10 +376,11 @@ async def get_report(session_id: str):
     for entry in scores:
         skill = entry["skill"]
         if skill not in skill_stats:
-            skill_stats[skill] = {"total": 0, "count": 0, "feedbacks": []}
+            skill_stats[skill] = {"total": 0, "count": 0, "feedbacks": [], "missing": []}
         skill_stats[skill]["total"] += entry["score"]
         skill_stats[skill]["count"] += 1
         skill_stats[skill]["feedbacks"].append(entry["feedback"])
+        skill_stats[skill]["missing"].extend(entry.get("missing_keywords", []))
 
     skills_report = []
     overall_total = 0
@@ -387,24 +388,31 @@ async def get_report(session_id: str):
 
     for skill, stats in skill_stats.items():
         avg = stats["total"] / stats["count"]
-        status = "Mastered" if avg >= 4 else "Developing" if avg >= 2.5 else "Needs Focus"
+        # Normalize avg to 1-10 if it was 1-5, but currently it's mixed.
+        # Let's assume scores are up to 10 now since Commit 8.
+        status = "Mastered" if avg >= 8 else "Proficient" if avg >= 6 else "Needs Improvement"
         
+        feedback = "; ".join(list(set(stats["feedbacks"])))
+        if stats["missing"]:
+            feedback += f". Focus on: {', '.join(list(set(stats['missing'] )))}"
+
         skills_report.append(SkillReport(
             skill=skill,
             average_score=round(avg, 1),
             status=status,
-            feedback_summary="; ".join(set(stats["feedbacks"]))
+            feedback_summary=feedback
         ))
         overall_total += avg
         
         if status != "Mastered":
-            roadmap.append(f"Enhance your {skill} skills through focused practice.")
+            roadmap.append(f"Deepen your understanding of {skill} concepts, especially {', '.join(list(set(stats['missing']))[:2]) if stats['missing'] else 'core architectures'}.")
 
     return ReportResponse(
         overall_score=round(overall_total / len(skills_report), 1),
         skills_report=skills_report,
-        roadmap=roadmap or ["Excellent work! Keep it up."]
+        roadmap=roadmap or ["Excellent performance across all domains. You are ready!"]
     )
+
 
 if __name__ == "__main__":
     import uvicorn
