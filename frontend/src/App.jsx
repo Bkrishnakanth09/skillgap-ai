@@ -422,6 +422,7 @@ export default function App() {
 
   // Handle successful resume analysis
   const handleStart = (data) => {
+    localStorage.setItem("session_id", data.session_id)
     setSession(data)
     setView('DASHBOARD')
   }
