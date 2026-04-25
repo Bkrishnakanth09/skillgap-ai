@@ -134,29 +134,36 @@ async def submit_answer(request: AnswerRequest):
 
     current_index = session["current_index"]
     skill = session["skills"][current_index]
+    answer = request.answer
 
-    # Simple placeholder scoring logic
-    score = 5 if len(request.answer) > 20 else 2
-    feedback = "Great depth!" if score == 5 else "Try to provide more details."
+    # Improved scoring logic (rule-based with feedback)
+    score = 5 if len(answer) > 40 else 3 if len(answer) > 15 else 1
+    feedback = "Detailed and well-articulated." if score == 5 else "Good, but could use more technical depth." if score == 3 else "Response is too brief."
 
     session["scores"].append({
         "skill": skill,
-        "score": score
+        "score": score,
+        "feedback": feedback
     })
 
-    # Progress to next question/skill
+    # move to next question
     session["current_index"] += 1
-    
-    next_question = None
-    if session["current_index"] < len(session["skills"]):
-        next_skill = session["skills"][session["current_index"]]
-        next_question = QUESTION_BANK.get(next_skill, QUESTION_BANK["Software Development"])[0]
 
-    return AnswerResponse(
-        score=score,
-        feedback=feedback,
-        next_question=next_question
-    )
+    if session["current_index"] >= len(session["skills"]):
+        return {
+            "score": score,
+            "feedback": feedback,
+            "next_question": None
+        }
+
+    next_skill = session["skills"][session["current_index"]]
+    next_question = QUESTION_BANK[next_skill][0]
+
+    return {
+        "score": score,
+        "feedback": feedback,
+        "next_question": next_question
+    }
 
 if __name__ == "__main__":
     import uvicorn
