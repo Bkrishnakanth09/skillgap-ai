@@ -50,9 +50,10 @@ def generate_refined_question(base_question: str, last_score: int) -> str:
         return f"Let's simplify: {base_question} Can you start with the basic concept?"
     return base_question
 
-# Initialize Qdrant in-memory
-qdrant = QdrantClient(":memory:")
-COLLECTION_NAME = "questions"
+# Initialize Qdrant
+QDRANT_URL = os.getenv("QDRANT_URL", ":memory:")
+COLLECTION_NAME = os.getenv("COLLECTION_NAME", "questions")
+qdrant = QdrantClient(QDRANT_URL)
 
 # Simple mock embedding
 def get_mock_embedding(text: str) -> List[float]:

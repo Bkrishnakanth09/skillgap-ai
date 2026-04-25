@@ -11,7 +11,9 @@ import {
   ChevronRight,
   TrendingUp,
   BrainCircuit,
-  CheckCircle2
+  CheckCircle2,
+  Send,
+  Loader2
 } from 'lucide-react'
 import { 
   LineChart, 
@@ -27,22 +29,10 @@ import {
 } from 'recharts'
 import { motion, AnimatePresence } from 'framer-motion'
 
-// --- MOCK DATA ---
-const SCAN_HISTORY = [
-  { day: 'Mon', score: 45 },
-  { day: 'Tue', score: 52 },
-  { day: 'Wed', score: 48 },
-  { day: 'Thu', score: 61 },
-  { day: 'Fri', score: 68 },
-  { day: 'Sat', score: 72 },
-  { day: 'Sun', score: 75 },
-]
+// --- DATA STATE ---
+const EMPTY_SKILLS = []
+const EMPTY_HISTORY = []
 
-const INITIAL_SKILLS = [
-  { name: 'Python', level: 70, color: '#3b82f6' },
-  { name: 'FastAPI', level: 40, color: '#a855f7' },
-  { name: 'Docker', level: 20, color: '#10b981' }
-]
 
 // --- COMPONENTS ---
 
@@ -93,17 +83,18 @@ function Dashboard({ userData, onStartInterview, onStartPractice }) {
     <motion.div 
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0 }}
       className="view-container"
     >
       <header className="view-header">
         <div>
-          <h1>Welcome back, {userData.name || 'Pramod'} 👋</h1>
+          <h1>Welcome back{userData.name ? `, ${userData.name}` : ''} 👋</h1>
           <p className="subtitle">Here's your current proficiency breakdown.</p>
         </div>
         <div className="user-profile">
           <div className="profile-info">
-            <span className="profile-name">Technical Lead</span>
-            <span className="profile-status">Candidate ID: #8821</span>
+            <span className="profile-name">{userData.title || 'Technical Candidate'}</span>
+            <span className="profile-status">{userData.id ? `Candidate ID: ${userData.id}` : 'Session Active'}</span>
           </div>
           <div className="profile-avatar">
             <User />
@@ -120,7 +111,7 @@ function Dashboard({ userData, onStartInterview, onStartPractice }) {
           </div>
           <div className="chart-container">
             <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={SCAN_HISTORY}>
+              <LineChart data={userData.history || EMPTY_HISTORY}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
                 <XAxis dataKey="day" stroke="#64748b" axisLine={false} tickLine={false} dy={10} />
                 <YAxis hide />
@@ -151,7 +142,7 @@ function Dashboard({ userData, onStartInterview, onStartPractice }) {
         <div className="dashboard-card span-4">
           <h3>Top Skills</h3>
           <div className="skill-list">
-            {(userData.skills || INITIAL_SKILLS).map((skill, i) => (
+            {(userData.skills || EMPTY_SKILLS).map((skill, i) => (
               <div key={i} className="skill-item-detailed">
                 <div className="skill-info">
                   <span>{skill.name || skill.skill}</span>
@@ -193,6 +184,150 @@ function Dashboard({ userData, onStartInterview, onStartPractice }) {
           </div>
           <ChevronRight className="action-arrow" />
         </div>
+      </div>
+    </motion.div>
+  )
+}
+
+function InterviewInterface({ sessionData, onComplete, userData }) {
+  const [messages, setMessages] = useState([{ 
+    role: 'assistant', 
+    content: sessionData.first_question,
+    score: null,
+    feedback: null
+  }])
+  const [input, setInput] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [isTyping, setIsTyping] = useState(false)
+  const scrollRef = useRef(null)
+
+  useEffect(() => {
+    scrollRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, isTyping])
+
+  const handleSend = async (e) => {
+    e.preventDefault()
+    if (!input.trim() || loading) return
+
+    const userEntry = input
+    setInput('')
+    setMessages(prev => [...prev, { role: 'user', content: userEntry }])
+    setLoading(true)
+    setTimeout(() => setIsTyping(true), 500)
+
+    try {
+      const res = await fetch('/api/answer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionData.session_id, answer: userEntry })
+      })
+      const data = await res.json()
+      
+      setTimeout(() => {
+        setIsTyping(false)
+        if (data.next_question) {
+          setMessages(prev => [
+            ...prev, 
+            { 
+              role: 'assistant', 
+              content: data.next_question,
+              score: data.score,
+              feedback: data.feedback
+            }
+          ])
+        } else {
+          setMessages(prev => [...prev, { role: 'assistant', content: "Evaluation Complete! Analyzying results..." }])
+          setTimeout(() => onComplete(), 2000)
+        }
+      }, 1000)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="view-container full-height"
+    >
+      <div className="interview-layout">
+        {/* Left Analytics Panel */}
+        <aside className="interview-analytics">
+          <div className="dashboard-card full-card">
+            <h3>Live Performance</h3>
+            <div className="mini-chart">
+               <ResponsiveContainer width="100%" height={150}>
+                <LineChart data={messages.filter(m => m.score).map((m, i) => ({ i, score: m.score }))}>
+                  <Line type="monotone" dataKey="score" stroke="#3b82f6" strokeWidth={3} dot={true} />
+                  <YAxis domain={[0, 5]} hide />
+                </LineChart>
+               </ResponsiveContainer>
+            </div>
+            
+            <div className="skill-progress-list">
+              {userData.skills.map((skill, i) => (
+                <div key={i} className="skill-mini">
+                  <div className="skill-mini-info">
+                    <span>{skill.name}</span>
+                    <span>{skill.level}%</span>
+                  </div>
+                  <div className="skill-bar-bg small">
+                    <div className="skill-bar-fill" style={{ width: `${skill.level}%`, background: skill.color }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="live-status mt-auto">
+              <div className="status-item">
+                <span className="dot pulse-green"></span>
+                <span>AI Interviewer Online</span>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        {/* Right Chat Panel */}
+        <main className="interview-chat">
+          <div className="chat-window">
+            <div className="chat-content">
+              {messages.map((m, i) => (
+                <div key={i} className={`chat-bubble-wrapper ${m.role}`}>
+                  <div className={`chat-bubble ${m.role}`}>
+                    {m.content}
+                    {m.feedback && (
+                      <div className="answer-feedback">
+                        <CheckCircle2 size={12} /> {m.feedback} (Score: {m.score}/5)
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {isTyping && (
+                <div className="chat-bubble-wrapper assistant">
+                  <div className="chat-bubble assistant typing">
+                    <Loader2 className="spinner-icon" /> AI is evaluating...
+                  </div>
+                </div>
+              )}
+              <div ref={scrollRef} />
+            </div>
+
+            <form onSubmit={handleSend} className="chat-input-area">
+              <textarea 
+                placeholder="Type your technical response..."
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend(e)}
+              />
+              <button type="submit" className="send-btn" disabled={loading || !input.trim()}>
+                <Send size={20} />
+              </button>
+            </form>
+          </div>
+        </main>
       </div>
     </motion.div>
   )
@@ -278,8 +413,11 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard')
   const [session, setSession] = useState(null)
   const [userData, setUserData] = useState({
-    name: 'Pramod',
-    skills: INITIAL_SKILLS
+    name: '',
+    title: '',
+    id: '',
+    skills: EMPTY_SKILLS,
+    history: EMPTY_HISTORY
   })
 
   // Handle successful resume analysis
@@ -294,10 +432,16 @@ export default function App() {
         <LandingPage onStart={handleStart} />
       ) : (
         <div className="app-main">
-          <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+          <Sidebar 
+            activeTab={activeTab === 'interview' ? 'interview' : activeTab} 
+            setActiveTab={(tab) => {
+              setActiveTab(tab)
+              if (tab === 'dashboard' && view !== 'DASHBOARD') setView('DASHBOARD')
+            }} 
+          />
           <main className="content-area">
             <AnimatePresence mode="wait">
-              {activeTab === 'dashboard' && (
+              {activeTab === 'dashboard' && view === 'DASHBOARD' && (
                 <Dashboard 
                   userData={userData} 
                   onStartInterview={() => setActiveTab('interview')}
@@ -305,10 +449,16 @@ export default function App() {
                 />
               )}
               {activeTab === 'interview' && (
+                <InterviewInterface 
+                  sessionData={session} 
+                  userData={userData}
+                  onComplete={() => setView('REPORT')} 
+                />
+              )}
+              {view === 'REPORT' && (
                 <div className="view-container">
-                  <h1>Interview Mode</h1>
-                  <p className="subtitle">The core interview experience will be plugged in here.</p>
-                  <button className="secondary-button" onClick={() => setActiveTab('dashboard')}>Back to Dashboard</button>
+                    <h1>Report View</h1>
+                    <button onClick={() => setView('DASHBOARD')}>Back to Dashboard</button>
                 </div>
               )}
             </AnimatePresence>
