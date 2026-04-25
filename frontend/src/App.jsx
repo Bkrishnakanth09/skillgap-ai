@@ -1,4 +1,202 @@
 import { useState, useEffect, useRef } from 'react'
+import { 
+  LayoutDashboard, 
+  MessageSquare, 
+  BookOpen, 
+  BarChart3, 
+  Settings, 
+  LogOut, 
+  User,
+  ArrowRight,
+  ChevronRight,
+  TrendingUp,
+  BrainCircuit,
+  CheckCircle2
+} from 'lucide-react'
+import { 
+  LineChart, 
+  Line, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  Cell
+} from 'recharts'
+import { motion, AnimatePresence } from 'framer-motion'
+
+// --- MOCK DATA ---
+const SCAN_HISTORY = [
+  { day: 'Mon', score: 45 },
+  { day: 'Tue', score: 52 },
+  { day: 'Wed', score: 48 },
+  { day: 'Thu', score: 61 },
+  { day: 'Fri', score: 68 },
+  { day: 'Sat', score: 72 },
+  { day: 'Sun', score: 75 },
+]
+
+const INITIAL_SKILLS = [
+  { name: 'Python', level: 70, color: '#3b82f6' },
+  { name: 'FastAPI', level: 40, color: '#a855f7' },
+  { name: 'Docker', level: 20, color: '#10b981' }
+]
+
+// --- COMPONENTS ---
+
+function Sidebar({ activeTab, setActiveTab }) {
+  const menuItems = [
+    { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+    { id: 'interview', icon: MessageSquare, label: 'Interview' },
+    { id: 'practice', icon: BookOpen, label: 'Practice' },
+    { id: 'reports', icon: BarChart3, label: 'Reports' },
+  ]
+
+  return (
+    <div className="sidebar">
+      <div className="sidebar-logo">
+        <BrainCircuit className="logo-icon" />
+        <span>skillgap-ai</span>
+      </div>
+      
+      <nav className="sidebar-nav">
+        {menuItems.map(item => (
+          <button 
+            key={item.id}
+            onClick={() => setActiveTab(item.id)}
+            className={`nav-item ${activeTab === item.id ? 'active' : ''}`}
+          >
+            <item.icon className="nav-icon" />
+            <span>{item.label}</span>
+          </button>
+        ))}
+      </nav>
+
+      <div className="sidebar-footer">
+        <button className="nav-item">
+          <Settings className="nav-icon" />
+          <span>Settings</span>
+        </button>
+        <button className="nav-item text-red">
+          <LogOut className="nav-icon" />
+          <span>Logout</span>
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function Dashboard({ userData, onStartInterview, onStartPractice }) {
+  return (
+    <motion.div 
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="view-container"
+    >
+      <header className="view-header">
+        <div>
+          <h1>Welcome back, {userData.name || 'Pramod'} 👋</h1>
+          <p className="subtitle">Here's your current proficiency breakdown.</p>
+        </div>
+        <div className="user-profile">
+          <div className="profile-info">
+            <span className="profile-name">Technical Lead</span>
+            <span className="profile-status">Candidate ID: #8821</span>
+          </div>
+          <div className="profile-avatar">
+            <User />
+          </div>
+        </div>
+      </header>
+
+      <div className="dashboard-grid">
+        {/* Progress Chart */}
+        <div className="dashboard-card span-8">
+          <div className="card-header">
+            <h3>Skill Progression</h3>
+            <span className="trend-positive"><TrendingUp size={16} /> +12% this week</span>
+          </div>
+          <div className="chart-container">
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={SCAN_HISTORY}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                <XAxis dataKey="day" stroke="#64748b" axisLine={false} tickLine={false} dy={10} />
+                <YAxis hide />
+                <Tooltip 
+                  contentStyle={{ background: 'rgba(15,23,42,0.9)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
+                  itemStyle={{ color: '#3b82f6' }}
+                />
+                <Line 
+                  type="monotone" 
+                  dataKey="score" 
+                  stroke="url(#lineGradient)" 
+                  strokeWidth={4} 
+                  dot={{ fill: '#3b82f6', strokeWidth: 2, r: 6 }} 
+                  activeDot={{ r: 8, strokeWidth: 0 }}
+                />
+                <defs>
+                  <linearGradient id="lineGradient" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stopColor="#3b82f6" />
+                    <stop offset="100%" stopColor="#a855f7" />
+                  </linearGradient>
+                </defs>
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Skill Breakdown */}
+        <div className="dashboard-card span-4">
+          <h3>Top Skills</h3>
+          <div className="skill-list">
+            {(userData.skills || INITIAL_SKILLS).map((skill, i) => (
+              <div key={i} className="skill-item-detailed">
+                <div className="skill-info">
+                  <span>{skill.name || skill.skill}</span>
+                  <span className="skill-perc">{skill.level || 0}%</span>
+                </div>
+                <div className="skill-bar-bg">
+                  <motion.div 
+                    initial={{ width: 0 }}
+                    animate={{ width: `${skill.level || 50}%` }}
+                    className="skill-bar-fill"
+                    style={{ background: `linear-gradient(to right, ${skill.color || '#3b82f6'}, #a855f7)` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+          <button className="secondary-button mt-auto">View Detailed Analytics</button>
+        </div>
+
+        {/* Action Cards */}
+        <div className="dashboard-card span-6 glow-blue clickable" onClick={onStartInterview}>
+          <div className="action-icon blue">
+            <BrainCircuit size={24} />
+          </div>
+          <div className="action-content">
+            <h4>Live AI Interview</h4>
+            <p>Simulate a real technical round with adaptive AI questioning.</p>
+          </div>
+          <ChevronRight className="action-arrow" />
+        </div>
+
+        <div className="dashboard-card span-6 glow-purple clickable" onClick={onStartPractice}>
+          <div className="action-icon purple">
+            <BookOpen size={24} />
+          </div>
+          <div className="action-content">
+            <h4>Practice Mode (MCQ)</h4>
+            <p>Sharpen your knowledge with targeted multiple choice questions.</p>
+          </div>
+          <ChevronRight className="action-arrow" />
+        </div>
+      </div>
+    </motion.div>
+  )
+}
 
 function LandingPage({ onStart }) {
   const [resume, setResume] = useState('')
@@ -22,179 +220,101 @@ function LandingPage({ onStart }) {
   }
 
   return (
-    <div className="premium-container animate-fade-in">
-      <h1>skillgap-ai</h1>
-      <p className="subtitle">AI-powered skill evaluation. Bridge the gap to your dream role.</p>
+    <div className="landing-full animate-fade-in">
+      <div className="landing-content">
+        <header className="landing-header">
+          <div className="logo-large">
+            <BrainCircuit size={40} className="logo-icon-anim" />
+            <span>skillgap.ai</span>
+          </div>
+          <p className="hero-text">Bridge your technical gap with AI-powered simulations.</p>
+        </header>
+
+        <div className="glass-card landing-card">
+          <form onSubmit={handleSubmit}>
+            <div className="input-group">
+              <label className="input-label">Analyze Resume</label>
+              <textarea 
+                placeholder="Paste your resume text here..."
+                value={resume}
+                onChange={(e) => setResume(e.target.value)}
+                required
+              />
+            </div>
+            
+            <div className="input-group">
+              <label className="input-label">Job Description</label>
+              <textarea 
+                placeholder="Paste the target JD..."
+                value={jd}
+                onChange={(e) => setJd(e.target.value)}
+                required
+              />
+            </div>
+            
+            <button type="submit" className="primary-button hero-btn" disabled={loading}>
+              {loading ? (
+                <span className="loading-spinner">Initializing Engine...</span>
+              ) : (
+                <>Get Started <ArrowRight size={20} /></>
+              )}
+            </button>
+          </form>
+        </div>
+      </div>
       
-      <div className="glass-card">
-        <form onSubmit={handleSubmit}>
-          <div className="input-group">
-            <label className="input-label">Your Resume Content</label>
-            <textarea 
-              placeholder="Paste your resume..."
-              value={resume}
-              onChange={(e) => setResume(e.target.value)}
-              required
-            />
-          </div>
-          
-          <div className="input-group">
-            <label className="input-label">Job Description</label>
-            <textarea 
-              placeholder="Paste the target JD..."
-              value={jd}
-              onChange={(e) => setJd(e.target.value)}
-              required
-            />
-          </div>
-          
-          <button type="submit" className="primary-button" disabled={loading}>
-            {loading ? 'Initializing...' : 'Start Technical Evaluation'}
-          </button>
-        </form>
+      <div className="bg-blobs">
+        <div className="blob blob-1"></div>
+        <div className="blob blob-2"></div>
       </div>
     </div>
   )
 }
 
-function ChatInterface({ session_id, first_question, onComplete }) {
-  const [messages, setMessages] = useState([{ role: 'assistant', content: first_question }])
-  const [input, setInput] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [isTyping, setIsTyping] = useState(false)
-  const messagesEndRef = useRef(null)
+// --- MAIN APP ---
 
-  const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  useEffect(scrollToBottom, [messages, isTyping])
+export default function App() {
+  const [view, setView] = useState('LANDING') // LANDING, DASHBOARD, INTERVIEW, PRACTICE, REPORT
+  const [activeTab, setActiveTab] = useState('dashboard')
+  const [session, setSession] = useState(null)
+  const [userData, setUserData] = useState({
+    name: 'Pramod',
+    skills: INITIAL_SKILLS
+  })
 
-  const handleSend = async (e) => {
-    e.preventDefault()
-    if (!input.trim() || loading) return
-
-    const userMsg = input
-    setInput('')
-    setMessages(prev => [...prev, { role: 'user', content: userMsg }])
-    setLoading(true)
-    
-    setTimeout(() => setIsTyping(true), 600)
-
-    try {
-      const res = await fetch('/api/answer', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id, answer: userMsg })
-      })
-      const data = await res.json()
-
-      setTimeout(() => {
-        setIsTyping(false)
-        if (data.next_question) {
-          setMessages(prev => [...prev, { role: 'assistant', content: data.next_question }])
-        } else {
-          setMessages(prev => [...prev, { role: 'assistant', content: "Thank you! Generating your report..." }])
-          setTimeout(() => onComplete(), 2000)
-        }
-      }, 1000)
-    } finally {
-      setLoading(false)
-    }
+  // Handle successful resume analysis
+  const handleStart = (data) => {
+    setSession(data)
+    setView('DASHBOARD')
   }
 
   return (
-    <div className="premium-container animate-fade-in">
-      <div className="glass-card" style={{ height: '80vh', display: 'flex', flexDirection: 'column', maxWidth: '800px' }}>
-        <div style={{ flex: 1, overflowY: 'auto', marginBottom: '1rem', paddingRight: '0.5rem' }}>
-          {messages.map((m, i) => (
-            <div key={i} style={{ marginBottom: '1rem', textAlign: m.role === 'user' ? 'right' : 'left' }}>
-              <div style={{ 
-                display: 'inline-block', 
-                padding: '0.8rem 1.2rem', 
-                borderRadius: '16px', 
-                background: m.role === 'user' ? 'var(--primary)' : 'rgba(255,255,255,0.05)',
-                color: 'white',
-                maxWidth: '85%'
-              }}>
-                {m.content}
-              </div>
-            </div>
-          ))}
-          {isTyping && <div className="typing-indicator" style={{ color: '#94a3b8' }}>Bot is thinking</div>}
-          <div ref={messagesEndRef} />
-        </div>
-
-        <form onSubmit={handleSend} style={{ display: 'flex', gap: '0.5rem' }}>
-          <textarea 
-            placeholder="Type your answer..."
-            style={{ minHeight: '60px', height: '60px' }}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            disabled={loading}
-          />
-          <button type="submit" className="primary-button" style={{ width: 'auto', padding: '0 1.5rem', marginTop: 0 }} disabled={loading}>Send</button>
-        </form>
-      </div>
-    </div>
-  )
-}
-
-function ReportPage({ session_id }) {
-  const [report, setReport] = useState(null)
-
-  useEffect(() => {
-    fetch(`/api/report/${session_id}`).then(res => res.json()).then(setReport)
-  }, [session_id])
-
-  if (!report) return <div className="premium-container"><h1>Generating Report...</h1></div>
-
-  return (
-    <div className="premium-container animate-fade-in">
-      <h1>Final Analysis</h1>
-      <p className="subtitle">Overall Score: <span style={{ color: 'var(--primary)', fontWeight: 800 }}>{report.overall_score}/5.0</span></p>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem', width: '100%', maxWidth: '1000px' }}>
-        <div className="glass-card" style={{ maxWidth: 'none', padding: '2rem' }}>
-          <h3>Skill Breakdown</h3>
-          {report.skills_report.map((s, i) => (
-            <div key={i} style={{ marginTop: '1.5rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                <span>{s.skill}</span>
-                <span>{s.average_score}/5</span>
-              </div>
-              <div style={{ height: '6px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px' }}>
-                <div style={{ width: `${(s.average_score / 5) * 100}%`, height: '100%', background: 'var(--primary)', borderRadius: '3px' }} />
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="glass-card" style={{ maxWidth: 'none', padding: '2rem' }}>
-          <h3>Learning Roadmap</h3>
-          {report.roadmap.map((step, i) => (
-            <div key={i} style={{ marginBottom: '1rem', padding: '1rem', background: 'rgba(255,255,255,0.02)', borderRadius: '12px' }}>
-              {step}
-            </div>
-          ))}
-          <button className="primary-button" onClick={() => window.location.reload()}>New Evaluation</button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function App() {
-  const [view, setView] = useState('LANDING')
-  const [session, setSession] = useState(null)
-
-  return (
-    <main>
+    <div className="app-shell">
       {view === 'LANDING' ? (
-        <LandingPage onStart={(data) => { setSession(data); setView('INTERVIEW'); }} />
-      ) : view === 'INTERVIEW' ? (
-        <ChatInterface session_id={session.session_id} first_question={session.first_question} onComplete={() => setView('REPORT')} />
+        <LandingPage onStart={handleStart} />
       ) : (
-        <ReportPage session_id={session.session_id} />
+        <div className="app-main">
+          <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+          <main className="content-area">
+            <AnimatePresence mode="wait">
+              {activeTab === 'dashboard' && (
+                <Dashboard 
+                  userData={userData} 
+                  onStartInterview={() => setActiveTab('interview')}
+                  onStartPractice={() => setView('PRACTICE')}
+                />
+              )}
+              {activeTab === 'interview' && (
+                <div className="view-container">
+                  <h1>Interview Mode</h1>
+                  <p className="subtitle">The core interview experience will be plugged in here.</p>
+                  <button className="secondary-button" onClick={() => setActiveTab('dashboard')}>Back to Dashboard</button>
+                </div>
+              )}
+            </AnimatePresence>
+          </main>
+        </div>
       )}
-    </main>
+    </div>
   )
 }
-
-export default App
