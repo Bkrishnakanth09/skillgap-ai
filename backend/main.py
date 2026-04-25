@@ -160,6 +160,37 @@ async def health_check():
         "version": "0.2.0"
     }
 
+
+
+def extract_skills_ai(resume: str, jd: str) -> List[str]:
+    """Extracts skills from resume and JD using Hugging Face Zero-Shot Classification."""
+    if not HF_TOKEN:
+        # Fallback to keyword matching
+        available_tech = list(QUESTION_BANK.keys())
+        text = (resume + " " + jd).lower()
+        extracted = [tech for tech in available_tech if tech.lower() in text]
+        return extracted if extracted else ["Software Development"]
+
+    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+    candidate_labels = list(QUESTION_BANK.keys())
+    payload = {
+        "inputs": f"Extract the core technical skills mentioned in this resume and job description. Resume: {resume[:500]} JD: {jd[:500]}",
+        "parameters": {"candidate_labels": candidate_labels}
+    }
+    
+    try:
+        response = requests.post("https://api-inference.huggingface.co/models/facebook/bart-large-mnli", 
+                                 headers=headers, json=payload, timeout=10)
+        result = response.json()
+        labels = result.get("labels", [])
+        scores = result.get("scores", [])
+        # Get labels with high confidence
+        extracted = [labels[i] for i, s in enumerate(scores) if s > 0.4]
+        return extracted[:3] if extracted else ["Software Development"]
+    except Exception as e:
+        print(f"Extraction Error: {e}")
+        return ["Software Development"]
+
 @app.post("/start", response_model=SessionResponse)
 async def start_session(request: StartRequest):
     """
@@ -168,17 +199,9 @@ async def start_session(request: StartRequest):
     if not request.resume_text or not request.job_description:
         raise HTTPException(status_code=400, detail="Incomplete data provided")
 
-    # Simulation: Extract skills from resume
-    available_tech = list(QUESTION_BANK.keys())
-    extracted = []
-    
-    resume_lower = request.resume_text.lower()
-    for tech in available_tech:
-        if tech.lower() in resume_lower:
-            extracted.append(SkillInfo(skill=tech, level="Detected"))
-
-    if not extracted:
-        extracted = [SkillInfo(skill="Software Development", level="Detected")]
+    # Real AI Extraction
+    skills = extract_skills_ai(request.resume_text, request.job_description)
+    extracted = [SkillInfo(skill=s, level="Detected") for s in skills]
 
     session_id = str(uuid.uuid4())
     
