@@ -442,6 +442,57 @@ function LandingPage({ onStart }) {
   )
 }
 
+function ReportView({ sessionData, onBack }) {
+  const [report, setReport] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const fetchReport = async () => {
+      try {
+        const res = await fetch(`/api/report/${sessionData.session_id}`)
+        const data = await res.json()
+        setReport(data)
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchReport()
+  }, [sessionData.session_id])
+
+  if (loading) {
+    return (
+      <div className="view-container flex-center">
+        <Loader2 className="spinner-icon large" />
+        <h2>Generating your skill performance report...</h2>
+      </div>
+    )
+  }
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="view-container"
+    >
+      <header className="view-header">
+        <h1>Technical Assessment Report</h1>
+        <button onClick={onBack} className="secondary-button">Back to Dashboard</button>
+      </header>
+
+      {report && (
+        <div className="report-grid">
+           <div className="dashboard-card span-12">
+              <div className="overall-score-hero">
+                  <span className="score-val">{report.overall_score}</span>
+                  <span className="score-label">Overall Proficiency</span>
+              </div>
+           </div>
+        </div>
+      )}
+    </motion.div>
+  )
+}
+
 // --- MAIN APP ---
 
 export default function App() {
@@ -511,11 +562,11 @@ export default function App() {
                 />
               )}
               {view === 'REPORT' && (
-                <div className="view-container">
-                    <h1>Report View</h1>
-                    <button onClick={() => setView('DASHBOARD')}>Back to Dashboard</button>
-                </div>
+                <ReportView sessionData={session} onBack={() => setView('DASHBOARD')} />
               )}
+
+
+
             </AnimatePresence>
           </main>
         </div>
