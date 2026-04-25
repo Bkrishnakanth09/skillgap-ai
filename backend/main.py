@@ -21,24 +21,39 @@ app = FastAPI(
 )
 
 def evaluate_answer_ai(question: str, answer: str) -> dict:
+    """Evaluates an answer and provides a score, feedback and missing keywords."""
+    # Simplified missing keyword check
+    keywords = ["optimization", "scalability", "latency", "best practices", "security", "testing"]
+    missing = [k for k in keywords if k not in answer.lower()]
+    
     if not HF_TOKEN:
-        return {"score": 5 if len(answer) > 30 else 3, "feedback": "Answer length analyzed (No HF Token)"}
+        score = 6 if len(answer) > 40 else 3
+        return {
+            "score": score, 
+            "feedback": "Technical depth is moderate." if score >= 5 else "Needs more elaboration.",
+            "missing_keywords": missing[:2]
+        }
     
     headers = {"Authorization": f"Bearer {HF_TOKEN}"}
     payload = {
         "inputs": f"Question: {question}\nAnswer: {answer}",
-        "parameters": {"candidate_labels": ["correct", "partially correct", "incorrect"]}
+        "parameters": {"candidate_labels": ["correct", "vague", "incorrect"]}
     }
     
     try:
-        response = requests.post(HF_API_URL, headers=headers, json=payload, timeout=5)
+        response = requests.post("https://api-inference.huggingface.co/models/facebook/bart-large-mnli", 
+                                 headers=headers, json=payload, timeout=5)
         result = response.json()
         top_label = result.get("labels", [])[0]
-        if top_label == "correct": return {"score": 5, "feedback": "Excellent answer!"}
-        if top_label == "partially correct": return {"score": 3, "feedback": "Good, but needs more detail."}
-        return {"score": 1, "feedback": "Incorrect or irrelevant."}
+        
+        if top_label == "correct": 
+            return {"score": 9, "feedback": "Excellent and accurate answer!", "missing_keywords": missing[:1]}
+        if top_label == "vague": 
+            return {"score": 5, "feedback": "Good, but could be more specific.", "missing_keywords": missing[:2]}
+        return {"score": 2, "feedback": "Answer seems incorrect or off-topic.", "missing_keywords": missing[:3]}
     except:
-        return {"score": 2, "feedback": "AI evaluation failed."}
+        return {"score": 4, "feedback": "Evaluation engine timed out.", "missing_keywords": []}
+
 
 import random
 
