@@ -5,12 +5,40 @@ import uuid
 from fastapi.middleware.cors import CORSMiddleware
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
+import requests
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+HF_API_URL = "https://api-inference.huggingface.co/models/facebook/bart-large-mnli"
+HF_TOKEN = os.getenv("HF_TOKEN")
 
 app = FastAPI(
     title="skillgap-ai API",
-    description="Backend with Qdrant vector retrieval",
-    version="0.3.0"
+    description="Backend with Qdrant + HuggingFace AI Evaluation",
+    version="0.4.0"
 )
+
+def evaluate_answer_ai(question: str, answer: str) -> dict:
+    if not HF_TOKEN:
+        return {"score": 5 if len(answer) > 30 else 3, "feedback": "Answer length analyzed (No HF Token)"}
+    
+    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+    payload = {
+        "inputs": f"Question: {question}\nAnswer: {answer}",
+        "parameters": {"candidate_labels": ["correct", "partially correct", "incorrect"]}
+    }
+    
+    try:
+        response = requests.post(HF_API_URL, headers=headers, json=payload, timeout=5)
+        result = response.json()
+        top_label = result.get("labels", [])[0]
+        if top_label == "correct": return {"score": 5, "feedback": "Excellent answer!"}
+        if top_label == "partially correct": return {"score": 3, "feedback": "Good, but needs more detail."}
+        return {"score": 1, "feedback": "Incorrect or irrelevant."}
+    except:
+        return {"score": 2, "feedback": "AI evaluation failed."}
 
 # Initialize Qdrant in-memory
 qdrant = QdrantClient(":memory:")
@@ -151,6 +179,7 @@ async def start_session(request: StartRequest):
         "jd": request.job_description,
         "skills": [s.skill for s in extracted],
         "current_index": 0,
+        "current_question": first_question,
         "scores": []
     }
 
@@ -173,11 +202,13 @@ async def submit_answer(request: AnswerRequest):
 
     current_index = session["current_index"]
     skill = session["skills"][current_index]
+    question = session["current_question"]
     answer = request.answer
 
-    # Improved scoring logic (rule-based with feedback)
-    score = 5 if len(answer) > 40 else 3 if len(answer) > 15 else 1
-    feedback = "Detailed and well-articulated." if score == 5 else "Good, but could use more technical depth." if score == 3 else "Response is too brief."
+    # AI evaluation
+    eval_result = evaluate_answer_ai(question, answer)
+    score = eval_result["score"]
+    feedback = eval_result["feedback"]
 
     session["scores"].append({
         "skill": skill,
@@ -202,6 +233,7 @@ async def submit_answer(request: AnswerRequest):
         limit=1
     )
     next_question = search_result[0].payload["question"] if search_result else "Tell me more about your work with " + next_skill
+    session["current_question"] = next_question
 
     return {
         "score": score,
