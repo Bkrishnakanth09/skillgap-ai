@@ -249,9 +249,12 @@ function InterviewInterface({ sessionData, onComplete, userData, onUpdatePerform
               if (newMessages[i].role === 'user') {
                 newMessages[i].score = data.score
                 newMessages[i].feedback = data.feedback
+                newMessages[i].suggestion = data.suggestion
+                newMessages[i].missing = data.missing_keywords
                 break
               }
             }
+
             onUpdatePerformance(data.skill, data.score)
             newMessages.push({ 
               role: 'assistant', 
@@ -332,9 +335,22 @@ function InterviewInterface({ sessionData, onComplete, userData, onUpdatePerform
                       <motion.div 
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: 'auto' }}
-                        className="answer-feedback"
+                        className="answer-feedback-extended"
                       >
-                        <CheckCircle2 size={12} /> {m.feedback} (Score: {m.score}/10)
+                        <div className="feedback-main">
+                          <CheckCircle2 size={14} className="text-green" /> 
+                          <span>{m.feedback} (Score: {m.score}/10)</span>
+                        </div>
+                        {m.missing && m.missing.length > 0 && (
+                          <div className="feedback-missing">
+                            <strong>Missing:</strong> {m.missing.join(', ')}
+                          </div>
+                        )}
+                        {m.suggestion && (
+                          <div className="feedback-suggestion">
+                            <strong>Tip:</strong> {m.suggestion}
+                          </div>
+                        )}
                       </motion.div>
                     )}
                   </div>
@@ -376,7 +392,81 @@ function InterviewInterface({ sessionData, onComplete, userData, onUpdatePerform
   )
 }
 
+function PracticeView({ onBack }) {
+  const [questions, setQuestions] = useState([])
+  const [currentIdx, setCurrentIdx] = useState(0)
+  const [selected, setSelected] = useState(null)
+  const [result, setResult] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetch('/api/practice/start')
+      .then(res => res.json())
+      .then(data => {
+         setQuestions(data.questions)
+         setLoading(false)
+      })
+  }, [])
+
+  const handleNext = () => {
+    if (currentIdx < questions.length - 1) {
+      setCurrentIdx(currentIdx + 1)
+      setSelected(null)
+      setResult(null)
+    } else {
+      onBack()
+    }
+  }
+
+  if (loading) return <div className="view-container flex-center"><h3>Loading Practice Session...</h3></div>
+
+  const q = questions[currentIdx]
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="view-container">
+      <div className="practice-header">
+        <h1>Practice Mode (MCQ)</h1>
+        <button onClick={onBack} className="secondary-button small">Exit</button>
+      </div>
+
+      <div className="practice-card dashboard-card">
+         <div className="practice-q-meta">
+            <span className="badge-purple">{q?.category}</span>
+            <span>Question {currentIdx + 1} of {questions.length}</span>
+         </div>
+         <h2 className="practice-q-text">{q?.question}</h2>
+
+         <div className="practice-options">
+            {q?.options.map((opt, i) => (
+              <button 
+                key={i} 
+                onClick={() => !result && setSelected(opt)}
+                className={`option-btn ${selected === opt ? 'selected' : ''} ${result && opt === q.answer ? 'correct' : ''} ${result && selected === opt && opt !== q.answer ? 'incorrect' : ''}`}
+              >
+                {opt}
+              </button>
+            ))}
+         </div>
+
+         {selected && !result && (
+           <button onClick={() => setResult(true)} className="primary-button mt-auto">Check Answer</button>
+         )}
+
+         {result && (
+           <div className="practice-feedback animate-fade-in">
+              <p>{selected === q.answer ? "✅ Correct!" : `❌ Incorrect. The answer is ${q.answer}`}</p>
+              <button onClick={handleNext} className="secondary-button mt-4">
+                {currentIdx < questions.length - 1 ? "Next Question" : "Finish Practice"}
+              </button>
+           </div>
+         )}
+      </div>
+    </motion.div>
+  )
+}
+
 function LandingPage({ onStart }) {
+
   const [resume, setResume] = useState('')
   const [jd, setJd] = useState('')
   const [loading, setLoading] = useState(false)
@@ -495,8 +585,14 @@ function ReportView({ sessionData, onBack }) {
                     <span className="score-max">/10</span>
                   </div>
                   <span className="score-label">Overall Proficiency</span>
+                  {report.improvement_pct > 0 && (
+                    <div className="momentum-badge">
+                      <TrendingUp size={14} /> +{report.improvement_pct}% Momentum
+                    </div>
+                  )}
               </div>
            </div>
+
 
            <div className="dashboard-card span-8">
             <h3>Domain Performance</h3>
@@ -605,9 +701,14 @@ export default function App() {
                   onComplete={() => setView('REPORT')} 
                 />
               )}
+              {view === 'PRACTICE' && (
+                <PracticeView onBack={() => setView('DASHBOARD')} />
+              )}
               {view === 'REPORT' && (
                 <ReportView sessionData={session} onBack={() => setView('DASHBOARD')} />
               )}
+
+
 
 
 

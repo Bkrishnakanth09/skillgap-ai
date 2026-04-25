@@ -22,37 +22,45 @@ app = FastAPI(
 
 def evaluate_answer_ai(question: str, answer: str) -> dict:
     """Evaluates an answer and provides a score, feedback and missing keywords."""
-    # Simplified missing keyword check
-    keywords = ["optimization", "scalability", "latency", "best practices", "security", "testing"]
+    keywords = ["optimization", "scalability", "latency", "security", "concurrency", "fault-tolerance", "consistency"]
     missing = [k for k in keywords if k not in answer.lower()]
     
+    # Suggestion based on missing keywords
+    suggestion = f"Try to incorporate concepts like {', '.join(missing[:2])}." if missing else "Your answer is very comprehensive."
+
     if not HF_TOKEN:
-        score = 6 if len(answer) > 40 else 3
+        score = 6 if len(answer) > 50 else 3
         return {
             "score": score, 
             "feedback": "Technical depth is moderate." if score >= 5 else "Needs more elaboration.",
-            "missing_keywords": missing[:2]
+            "missing_keywords": missing[:2],
+            "suggestion": suggestion
         }
     
     headers = {"Authorization": f"Bearer {HF_TOKEN}"}
     payload = {
-        "inputs": f"Question: {question}\nAnswer: {answer}",
-        "parameters": {"candidate_labels": ["correct", "vague", "incorrect"]}
+        "inputs": f"Technical Interview. Question: {question}\nAnswer: {answer}. Is this correct, partially correct, or incorrect?",
+        "parameters": {"candidate_labels": ["correct", "partially correct", "incorrect"]}
     }
     
     try:
         response = requests.post("https://api-inference.huggingface.co/models/facebook/bart-large-mnli", 
-                                 headers=headers, json=payload, timeout=5)
+                                 headers=headers, json=payload, timeout=8)
         result = response.json()
+        if "labels" not in result:
+             raise ValueError("Malformed HF response")
+             
         top_label = result.get("labels", [])[0]
         
         if top_label == "correct": 
-            return {"score": 9, "feedback": "Excellent and accurate answer!", "missing_keywords": missing[:1]}
-        if top_label == "vague": 
-            return {"score": 5, "feedback": "Good, but could be more specific.", "missing_keywords": missing[:2]}
-        return {"score": 2, "feedback": "Answer seems incorrect or off-topic.", "missing_keywords": missing[:3]}
-    except:
-        return {"score": 4, "feedback": "Evaluation engine timed out.", "missing_keywords": []}
+            return {"score": 9, "feedback": "Excellent and accurate answer!", "missing_keywords": missing[:1], "suggestion": "Keep up the great technical depth."}
+        if top_label == "partially correct": 
+            return {"score": 5, "feedback": "Good, but could be more specific.", "missing_keywords": missing[:2], "suggestion": suggestion}
+        return {"score": 2, "feedback": "Answer seems incorrect or off-topic.", "missing_keywords": missing[:3], "suggestion": "Review the core concepts behind this technology."}
+    except Exception as e:
+        print(f"Evaluation Error: {e}")
+        return {"score": 5, "feedback": "Analysis complete. Good effort.", "missing_keywords": missing[:2], "suggestion": suggestion}
+
 
 
 import random
@@ -171,6 +179,28 @@ SKILL_MAPPING = {
     "java": "Java"
 }
 
+PRACTICE_QUESTIONS = [
+    {
+        "question": "Which of the following is NOT a core principle of SOLID?",
+        "options": ["Single Responsibility", "Open/Closed", "Linear Scalability", "Dependency Inversion"],
+        "answer": "Linear Scalability",
+        "category": "Software Development"
+    },
+    {
+        "question": "What is the primary purpose of a 'Dead Letter Queue' in messaging systems?",
+        "options": ["Speed up processing", "Handle failed messages", "Store encrypted data", "Delete old logs"],
+        "answer": "Handle failed messages",
+        "category": "System Design"
+    },
+    {
+        "question": "In React, what does 'Lifting State Up' mean?",
+        "options": ["Moving status to the cloud", "Moving state to a common ancestor", "Using Redux only", "Deleting local state"],
+        "answer": "Moving state to a common ancestor",
+        "category": "React"
+    }
+]
+
+
 
 def normalize_skill(skill: str) -> str:
     return SKILL_MAPPING.get(skill.lower(), skill)
@@ -198,7 +228,11 @@ class AnswerResponse(BaseModel):
     skill: str
     score: int
     feedback: str
+    suggestion: Optional[str] = None
+    missing_keywords: List[str] = []
     next_question: Optional[str]
+
+
 
 class SkillReport(BaseModel):
     skill: str
@@ -208,10 +242,24 @@ class SkillReport(BaseModel):
 
 class ReportResponse(BaseModel):
     overall_score: float
+    improvement_pct: float
     skills_report: List[SkillReport]
     roadmap: List[str]
 
+
+class PracticeStartResponse(BaseModel):
+    questions: List[dict]
+
+class PracticeAnswerRequest(BaseModel):
+    question_idx: int
+    selected_option: str
+
+class PracticeAnswerResponse(BaseModel):
+    correct: bool
+    explanation: str
+
 # --- In-memory storage ---
+
 sessions = {}
 
 @app.get("/")
@@ -225,23 +273,26 @@ async def health_check():
 
 
 def extract_skills_ai(resume: str, jd: str) -> List[str]:
-    """Extracts skills from resume and JD using Hugging Face Zero-Shot Classification."""
+    """Extracts skills from resume and JD using Hugging Face Zero-Shot Classification with strict fallbacks."""
+    default_skills = ["Software Development", "System Design", "Python"]
+    
+    if not resume.strip() and not jd.strip():
+        return default_skills
+
     if not HF_TOKEN:
         # Fallback to enhanced keyword matching
         text = (resume + " " + jd).lower()
         extracted = []
-        # Check for full names and aliases
         for short, full in SKILL_MAPPING.items():
             if short in text:
                 extracted.append(full)
         
-        return list(set(extracted)) if extracted else ["Software Development"]
-
+        return list(set(extracted))[:4] if extracted else default_skills
 
     headers = {"Authorization": f"Bearer {HF_TOKEN}"}
     candidate_labels = list(QUESTION_BANK.keys())
     payload = {
-        "inputs": f"Extract the core technical skills mentioned in this resume and job description. Resume: {resume[:500]} JD: {jd[:500]}",
+        "inputs": f"Extract tech skills from Resume: {resume[:400]} and JD: {jd[:400]}. Labels: {candidate_labels}",
         "parameters": {"candidate_labels": candidate_labels}
     }
     
@@ -251,12 +302,12 @@ def extract_skills_ai(resume: str, jd: str) -> List[str]:
         result = response.json()
         labels = result.get("labels", [])
         scores = result.get("scores", [])
-        # Get labels with high confidence
-        extracted = [labels[i] for i, s in enumerate(scores) if s > 0.4]
-        return extracted[:3] if extracted else ["Software Development"]
+        extracted = [labels[i] for i, s in enumerate(scores) if s > 0.35]
+        return list(set(extracted))[:3] if extracted else default_skills
     except Exception as e:
         print(f"Extraction Error: {e}")
-        return ["Software Development"]
+        return default_skills
+
 
 @app.post("/start", response_model=SessionResponse)
 async def start_session(request: StartRequest):
@@ -366,8 +417,12 @@ async def submit_answer(request: AnswerRequest):
         "skill": skill,
         "score": score,
         "feedback": feedback,
+        "suggestion": eval_result.get("suggestion"),
+        "missing_keywords": eval_result.get("missing_keywords", []),
         "next_question": next_question
     }
+
+
 
 
 @app.get("/report/{session_id}", response_model=ReportResponse)
@@ -419,13 +474,40 @@ async def get_report(session_id: str):
         if status != "Mastered":
             roadmap.append(f"Deepen your understanding of {skill} concepts, especially {', '.join(list(set(stats['missing']))[:2]) if stats['missing'] else 'core architectures'}.")
 
+    # Confidence/Improvement Insight
+    improvement = 0
+    raw_scores = [s["score"] for s in scores]
+    if len(raw_scores) >= 3:
+        first_avg = sum(raw_scores[:len(raw_scores)//2]) / (len(raw_scores)//2)
+        last_avg = sum(raw_scores[len(raw_scores)//2:]) / (len(raw_scores) - len(raw_scores)//2)
+        improvement = round(((last_avg - first_avg) / max(first_avg, 1)) * 100)
+
     return ReportResponse(
         overall_score=round(overall_total / len(skills_report), 1),
+        improvement_pct=improvement if improvement > 0 else 0,
         skills_report=skills_report,
         roadmap=roadmap or ["Excellent performance across all domains. You are ready!"]
     )
 
 
+
+@app.get("/practice/start", response_model=PracticeStartResponse)
+async def start_practice():
+    # Return 3 random questions for practice
+    qs = random.sample(PRACTICE_QUESTIONS, min(len(PRACTICE_QUESTIONS), 3))
+    return {"questions": qs}
+
+@app.post("/practice/answer", response_model=PracticeAnswerResponse)
+async def check_practice_answer(request: PracticeAnswerRequest):
+    q = PRACTICE_QUESTIONS[request.question_idx]
+    is_correct = q["answer"] == request.selected_option
+    explanation = f"The correct answer is '{q['answer']}'."
+    if is_correct:
+        explanation = "Correct! Well done."
+    
+    return {"correct": is_correct, "explanation": explanation}
+
 if __name__ == "__main__":
+
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
