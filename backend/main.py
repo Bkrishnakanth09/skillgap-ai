@@ -310,9 +310,13 @@ async def submit_answer(request: AnswerRequest):
 
     session["scores"].append({
         "skill": skill,
+        "question": question,
+        "answer": answer,
         "score": score,
-        "feedback": feedback
+        "feedback": feedback,
+        "missing_keywords": eval_result.get("missing_keywords", [])
     })
+
 
     # move to next question
     session["current_index"] += 1
