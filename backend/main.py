@@ -4,7 +4,7 @@ from typing import List, Optional
 import uuid
 from fastapi.middleware.cors import CORSMiddleware
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct
+from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
 import requests
 import os
 from dotenv import load_dotenv
@@ -235,9 +235,13 @@ async def start_session(request: StartRequest):
     search_result = qdrant.query_points(
         collection_name=COLLECTION_NAME,
         query=get_mock_embedding(first_skill),
+        query_filter=Filter(
+            must=[FieldCondition(key="skill", match=MatchValue(value=first_skill))]
+        ),
         limit=1
     ).points
-    first_question = search_result[0].payload["question"] if search_result else "What is your experience with " + first_skill + "?"
+    first_question = search_result[0].payload["question"] if search_result else f"Tell me about your experience with {first_skill}."
+
 
     sessions[session_id] = {
         "resume": request.resume_text,
@@ -298,10 +302,14 @@ async def submit_answer(request: AnswerRequest):
     search_result = qdrant.query_points(
         collection_name=COLLECTION_NAME,
         query=get_mock_embedding(next_skill),
+        query_filter=Filter(
+            must=[FieldCondition(key="skill", match=MatchValue(value=next_skill))]
+        ),
         limit=1
     ).points
     
     base_question = search_result[0].payload["question"] if search_result else f"Tell me more about your work with {next_skill}"
+
     
     # AI Refinement / Follow-up Logic
     next_question = generate_refined_question(base_question, score)
