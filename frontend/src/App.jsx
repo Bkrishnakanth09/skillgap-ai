@@ -235,16 +235,23 @@ function InterviewInterface({ sessionData, onComplete, userData }) {
       setTimeout(() => {
         setIsTyping(false)
         if (data.next_question) {
-          setMessages(prev => [
-            ...prev, 
-            { 
-              role: 'assistant', 
-              content: data.next_question,
-              score: data.score,
-              feedback: data.feedback
+          setMessages(prev => {
+            const newMessages = [...prev]
+            for (let i = newMessages.length - 1; i >= 0; i--) {
+              if (newMessages[i].role === 'user') {
+                newMessages[i].score = data.score
+                newMessages[i].feedback = data.feedback
+                break
+              }
             }
-          ])
+            newMessages.push({ 
+              role: 'assistant', 
+              content: data.next_question
+            })
+            return newMessages
+          })
         } else {
+
           setMessages(prev => [...prev, { role: 'assistant', content: "Evaluation Complete! Analyzing results..." }])
           setTimeout(() => onComplete(), 2000)
         }
