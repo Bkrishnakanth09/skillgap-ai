@@ -40,15 +40,29 @@ def evaluate_answer_ai(question: str, answer: str) -> dict:
     except:
         return {"score": 2, "feedback": "AI evaluation failed."}
 
+import random
+
 def generate_refined_question(base_question: str, last_score: int) -> str:
     """
     Refines the base question from Qdrant based on previous performance.
     """
+    prompts_hard = [
+        "Going deeper: {q} Specifically, how would you handle it in a high-scale environment?",
+        "Advanced follow-up: {q} What are the potential pitfalls of this approach at scale?",
+        "Deep dive: {q} Can you explain the internal mechanics behind this?"
+    ]
+    prompts_soft = [
+        "Let's simplify: {q} Can you start with the basic concept?",
+        "Foundational check: {q} What is the absolute simplest way to implement this?",
+        "Bridge the gap: {q} To make it clearer, what are the primary building blocks here?"
+    ]
+
     if last_score >= 4:
-        return f"Going deeper: {base_question} Specifically, how would you handle it in a high-scale environment?"
+        return random.choice(prompts_hard).format(q=base_question)
     if last_score <= 2:
-        return f"Let's simplify: {base_question} Can you start with the basic concept?"
+        return random.choice(prompts_soft).format(q=base_question)
     return base_question
+
 
 # Initialize Qdrant
 QDRANT_URL = os.getenv("QDRANT_URL", ":memory:")
