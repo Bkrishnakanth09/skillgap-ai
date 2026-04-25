@@ -112,8 +112,28 @@ QUESTION_BANK = {
     "Software Development": [
         "Describe the Solid principles in Object-Oriented Design.",
         "What is the difference between REST and GraphQL?"
+    ],
+    "Kubernetes": [
+        "What is a Kubernetes Pod and how does it differ from a Docker container?",
+        "Explain the role of a K8s Deployment vs a StatefulSet."
     ]
 }
+
+SKILL_MAPPING = {
+    "k8s": "Kubernetes",
+    "kubernetes": "Kubernetes",
+    "python": "Python",
+    "py": "Python",
+    "fastapi": "FastAPI",
+    "react": "React",
+    "docker": "Docker",
+    "typescript": "TypeScript",
+    "ts": "TypeScript"
+}
+
+def normalize_skill(skill: str) -> str:
+    return SKILL_MAPPING.get(skill.lower(), skill)
+
 
 # --- Models ---
 class StartRequest(BaseModel):
@@ -165,11 +185,16 @@ async def health_check():
 def extract_skills_ai(resume: str, jd: str) -> List[str]:
     """Extracts skills from resume and JD using Hugging Face Zero-Shot Classification."""
     if not HF_TOKEN:
-        # Fallback to keyword matching
-        available_tech = list(QUESTION_BANK.keys())
+        # Fallback to enhanced keyword matching
         text = (resume + " " + jd).lower()
-        extracted = [tech for tech in available_tech if tech.lower() in text]
-        return extracted if extracted else ["Software Development"]
+        extracted = []
+        # Check for full names and aliases
+        for short, full in SKILL_MAPPING.items():
+            if short in text:
+                extracted.append(full)
+        
+        return list(set(extracted)) if extracted else ["Software Development"]
+
 
     headers = {"Authorization": f"Bearer {HF_TOKEN}"}
     candidate_labels = list(QUESTION_BANK.keys())
