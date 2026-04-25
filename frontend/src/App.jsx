@@ -221,6 +221,9 @@ function InterviewInterface({ sessionData, onComplete, userData }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: sessionData.session_id, answer: userEntry })
       })
+      
+      if (!res.ok) throw new Error('Evaluation failed')
+      
       const data = await res.json()
       
       setTimeout(() => {
@@ -236,13 +239,17 @@ function InterviewInterface({ sessionData, onComplete, userData }) {
             }
           ])
         } else {
-          setMessages(prev => [...prev, { role: 'assistant', content: "Evaluation Complete! Analyzying results..." }])
+          setMessages(prev => [...prev, { role: 'assistant', content: "Evaluation Complete! Analyzing results..." }])
           setTimeout(() => onComplete(), 2000)
         }
       }, 1000)
+    } catch (err) {
+      setIsTyping(false)
+      setMessages(prev => [...prev, { role: 'assistant', content: "Error: Could not reach the evaluation engine. Please try again." }])
     } finally {
       setLoading(false)
     }
+
   }
 
   return (
